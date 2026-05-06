@@ -6,13 +6,9 @@ A self-hosted internet radio player with a **Windows 98/2000 aesthetic**, built 
 
 ---
 
-## Screenshot
 
-<!-- TODO: Add a screenshot of the app here -->
+<img width="2341" height="1158" alt="image" src="https://github.com/user-attachments/assets/c85882c7-6c25-4deb-83d9-613e3aed8fe2" />
 
-```
-[Insert screenshot of the WinAmp-style player here]
-```
 
 ---
 
