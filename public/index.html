@@ -1,0 +1,372 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>RadioApp v0.1</title>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+
+  <!-- ===================== LOGIN SCREEN ===================== -->
+  <div id="login-screen" class="screen active">
+    <div class="window login-window">
+      <div class="title-bar">
+        <div class="title-bar-text">RadioApp &mdash; Login</div>
+        <div class="title-bar-controls">
+          <button class="title-bar-btn minimize" aria-label="Minimize">&minus;</button>
+          <button class="title-bar-btn maximize" aria-label="Maximize">&#9633;</button>
+          <button class="title-bar-btn close" aria-label="Close">&times;</button>
+        </div>
+      </div>
+      <div class="window-body">
+        <div class="login-content">
+          <div class="login-icon">
+            <svg viewBox="0 0 48 48" width="48" height="48">
+              <circle cx="24" cy="24" r="22" fill="#000080" stroke="#fff" stroke-width="1"/>
+              <text x="24" y="30" text-anchor="middle" fill="#fff" font-size="20" font-family="sans-serif">&#9835;</text>
+            </svg>
+          </div>
+          <h2>Welcome to RadioApp</h2>
+          <p class="login-subtitle">Please enter your credentials to continue.</p>
+          <form id="login-form" autocomplete="off">
+            <div class="form-group">
+              <label for="username">Username:</label>
+              <input type="text" id="username" name="username" placeholder="Enter username" autofocus>
+            </div>
+            <div class="form-group">
+              <label for="password">Password:</label>
+              <input type="password" id="password" name="password" placeholder="Enter password">
+            </div>
+            <div id="login-error" class="error-msg"></div>
+            <div class="form-actions">
+              <button type="submit" class="btn btn-primary" id="login-btn">OK</button>
+              <button type="reset" class="btn">Cancel</button>
+            </div>
+          </form>
+          <p class="login-note">Press <kbd>Enter</kbd> to login</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================== MAIN APP SCREEN ===================== -->
+  <div id="app-screen" class="screen">
+
+    <div class="window main-window">
+      <div class="title-bar">
+        <div class="title-bar-text">
+          <span class="app-icon">&#9835;</span>
+          RadioApp &mdash; Internet Radio Player
+        </div>
+        <div class="title-bar-controls">
+          <button class="title-bar-btn minimize" aria-label="Minimize">&minus;</button>
+          <button class="title-bar-btn maximize" aria-label="Maximize">&#9633;</button>
+          <button class="title-bar-btn close" aria-label="Close">&times;</button>
+        </div>
+      </div>
+
+      <!-- Menu Bar -->
+      <div class="menu-bar">
+        <button class="menu-item" data-menu="stations">Stations</button>
+        <button class="menu-item admin-only" data-menu="users">Users</button>
+        <button class="menu-item admin-only" data-menu="ai-news">AI News</button>
+        <button class="menu-item admin-only" data-menu="logs">Logs</button>
+        <button class="menu-item" data-menu="help">Help</button>
+        <span class="menu-spacer"></span>
+        <button class="menu-item" id="menu-logout">Logout</button>
+      </div>
+
+      <!-- Main Content Area -->
+      <div class="window-body main-content">
+
+        <!-- User Badge -->
+        <div class="user-badge">
+          Logged in as: <strong id="display-username">&mdash;</strong>
+          <span class="role-tag" id="display-role">&mdash;</span>
+        </div>
+
+        <!-- =================== STATIONS VIEW =================== -->
+        <div id="view-stations" class="view active">
+
+          <!-- Station List Section -->
+          <div class="section">
+            <div class="section-header">
+              <h3>&#127911; Radio Stations</h3>
+              <button class="btn btn-primary admin-only" id="btn-add-station">+ Add Station</button>
+            </div>
+            <div class="sunken-panel">
+              <table class="station-table" id="station-table">
+                <thead>
+                  <tr>
+                    <th class="col-status">Status</th>
+                    <th class="col-name">Station Name</th>
+                    <th class="col-tracks">Tracks</th>
+                    <th class="col-listeners">Listeners</th>
+                    <th class="col-actions">Actions</th>
+                  </tr>
+                </thead>
+                <tbody id="station-list">
+                  <tr><td colspan="5" class="loading-row">Loading stations&hellip;</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- Track Queue Section (hidden on mobile, accessible via rescan for admin) -->
+          <div class="section" id="track-queue-section" style="display:none;">
+            <div class="section-header">
+              <h3>&#127925; <span id="queue-title">Track Queue</span></h3>
+              <div style="display:flex;gap:6px;align-items:center;">
+                <span class="queue-count" id="queue-count"></span>
+                <button class="btn btn-sm admin-only" id="btn-rescan">&#8635; Rescan</button>
+              </div>
+            </div>
+            <div class="sunken-panel">
+              <table class="station-table">
+                <thead>
+                  <tr>
+                    <th class="col-num">#</th>
+                    <th class="col-name">Track</th>
+                    <th class="col-size">Size</th>
+                  </tr>
+                </thead>
+                <tbody id="track-list">
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- Now Playing Section (WinAmp-style mini player) -->
+          <div class="section" id="now-playing-section">
+            <div class="section-header">
+              <h3>&#9835; Now Playing</h3>
+            </div>
+            <div class="sunken-panel player-panel">
+              <!-- Station Badge -->
+              <div class="station-badge" id="station-badge">
+                <span class="station-icon">&#9835;</span>
+                <span class="station-name" id="playing-station-name">No station selected</span>
+                <span class="status-indicator" id="playing-status-indicator"></span>
+              </div>
+
+              <!-- Track Display (marquee style) -->
+              <div class="track-display">
+                <div class="track-marquee" id="track-marquee">
+                  <span id="track-artist-title">Select a station and tune in to start listening</span>
+                </div>
+              </div>
+
+              <!-- Mini Visualizer -->
+              <div class="mini-visualizer">
+                <canvas id="visualizer" width="200" height="36"></canvas>
+              </div>
+
+              <!-- Controls -->
+              <div class="player-controls">
+                <button class="btn btn-sm" id="btn-tunein">&#9654; Tune In</button>
+                <button class="btn btn-sm btn-danger" id="btn-disconnect" disabled>&#9632; Disconnect</button>
+                <div class="volume-control">
+                  <label for="volume-slider">&#128266;</label>
+                  <input type="range" id="volume-slider" min="0" max="100" value="75">
+                  <span id="volume-value">75%</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+        </div><!-- /view-stations -->
+
+        <!-- =================== USERS VIEW (admin only) =================== -->
+        <div id="view-users" class="view">
+          <div class="section">
+            <div class="section-header">
+              <h3>&#128101; User Management</h3>
+              <button class="btn btn-primary" id="btn-add-user">+ Add User</button>
+            </div>
+            <div class="sunken-panel">
+              <table class="station-table">
+                <thead>
+                  <tr>
+                    <th>ID</th>
+                    <th>Username</th>
+                    <th>Role</th>
+                    <th>Created</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody id="user-list">
+                  <tr><td colspan="5" class="loading-row">Loading users&hellip;</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div><!-- /view-users -->
+
+        <!-- =================== AI NEWS VIEW (admin only) =================== -->
+        <div id="view-ai-news" class="view">
+          <div class="section">
+            <div class="section-header">
+              <h3>&#128240; AI News Roundup</h3>
+            </div>
+            <div class="sunken-panel" style="padding:16px;">
+              <div class="form-group">
+                <label for="ai-api-key">DeepSeek API Key:</label>
+                <input type="password" id="ai-api-key" placeholder="sk-..." style="width:100%;font-family:monospace;">
+                <div style="font-size:0.75rem;color:#888;margin-top:4px;">
+                  Get a key at <a href="https://platform.deepseek.com/" target="_blank" style="color:var(--win-link);">platform.deepseek.com</a>
+                </div>
+              </div>
+              <div class="form-group">
+                <label for="ai-model">Model:</label>
+                <select id="ai-model" class="win-select" style="font-family:monospace;">
+                  <option value="deepseek-v4-flash">deepseek-v4-flash (cheapest, $0.14/M input)</option>
+                  <option value="deepseek-chat">deepseek-chat (legacy, same pricing)</option>
+                  <option value="deepseek-v4-pro">deepseek-v4-pro (higher quality, $0.435/M input)</option>
+                  <option value="deepseek-reasoner">deepseek-reasoner (R1, $0.55/M input)</option>
+                </select>
+              </div>
+              <div class="form-actions" style="justify-content:flex-start;">
+                <button class="btn" id="btn-save-ai-key">Save Key &amp; Model</button>
+                <button class="btn" id="btn-generate-news">&#9654; Generate News</button>
+                <button class="btn" id="btn-toggle-news" disabled>Enable News</button>
+              </div>
+              <div id="ai-news-status" class="info-msg" style="margin-top:8px;"></div>
+              <hr style="border:none;border-top:1px solid var(--win-shadow);margin:16px 0;">
+              <div class="form-group">
+                <label>Latest News Text:</label>
+                <div style="background:#fff;border:2px inset var(--win-shadow);padding:8px;font-size:0.8rem;max-height:200px;overflow-y:auto;white-space:pre-wrap;font-family:monospace;" id="ai-news-text-display">No news generated yet.</div>
+              </div>
+            </div>
+          </div>
+        </div><!-- /view-ai-news -->
+
+        <!-- =================== LOGS VIEW (admin only) =================== -->
+        <div id="view-logs" class="view">
+          <div class="section">
+            <div class="section-header">
+              <h3>&#128203; Activity Log</h3>
+              <button class="btn" id="btn-refresh-logs">&#8635; Refresh</button>
+            </div>
+            <div class="sunken-panel">
+              <table class="station-table">
+                <thead>
+                  <tr>
+                    <th>Time</th>
+                    <th>User</th>
+                    <th>Action</th>
+                    <th>Detail</th>
+                    <th>IP</th>
+                  </tr>
+                </thead>
+                <tbody id="log-list">
+                  <tr><td colspan="5" class="loading-row">Loading logs&hellip;</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div><!-- /view-logs -->
+
+      </div><!-- /main-content -->
+
+      <!-- Status Bar -->
+      <div class="status-bar">
+        <span id="status-text">Ready</span>
+        <span class="status-separator"></span>
+        <span id="status-stations">&mdash;</span>
+        <span class="status-separator"></span>
+        <span id="status-time"></span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================== ADD STATION DIALOG ===================== -->
+  <div id="add-station-dialog" class="dialog-overlay">
+    <div class="window dialog-window">
+      <div class="title-bar">
+        <div class="title-bar-text">Add New Station</div>
+        <div class="title-bar-controls">
+          <button class="title-bar-btn close dialog-close">&times;</button>
+        </div>
+      </div>
+      <div class="window-body">
+        <form id="add-station-form">
+          <div class="form-group">
+            <label for="station-name">Station Name:</label>
+            <input type="text" id="station-name" placeholder="e.g. My Cool Radio" required>
+          </div>
+          <div class="form-group">
+            <label for="station-dir">Stream Directory:</label>
+            <input type="text" id="station-dir" placeholder="e.g. /music/jazz/" required>
+          </div>
+          <div id="add-station-error" class="error-msg"></div>
+          <div id="add-station-info" class="info-msg"></div>
+          <div class="form-actions">
+            <button type="submit" class="btn btn-primary" id="add-station-submit">OK</button>
+            <button type="button" class="btn dialog-close">Cancel</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================== ADD USER DIALOG ===================== -->
+  <div id="add-user-dialog" class="dialog-overlay">
+    <div class="window dialog-window">
+      <div class="title-bar">
+        <div class="title-bar-text">Add New User</div>
+        <div class="title-bar-controls">
+          <button class="title-bar-btn close dialog-close">&times;</button>
+        </div>
+      </div>
+      <div class="window-body">
+        <form id="add-user-form">
+          <div class="form-group">
+            <label for="new-username">Username:</label>
+            <input type="text" id="new-username" placeholder="Enter username" required>
+          </div>
+          <div class="form-group">
+            <label for="new-password">Password:</label>
+            <input type="password" id="new-password" placeholder="Enter password" required>
+          </div>
+          <div class="form-group">
+            <label for="new-role">Role:</label>
+            <select id="new-role" class="win-select" required>
+              <option value="listener">Listener</option>
+              <option value="admin">Administrator</option>
+            </select>
+          </div>
+          <div id="add-user-error" class="error-msg"></div>
+          <div class="form-actions">
+            <button type="submit" class="btn btn-primary">OK</button>
+            <button type="button" class="btn dialog-close">Cancel</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================== CONFIRM DIALOG ===================== -->
+  <div id="confirm-dialog" class="dialog-overlay">
+    <div class="window dialog-window">
+      <div class="title-bar">
+        <div class="title-bar-text">Confirm</div>
+        <div class="title-bar-controls">
+          <button class="title-bar-btn close dialog-close">&times;</button>
+        </div>
+      </div>
+      <div class="window-body">
+        <div class="confirm-content">
+          <p id="confirm-message">Are you sure?</p>
+          <div class="form-actions">
+            <button class="btn btn-primary" id="confirm-yes">Yes</button>
+            <button class="btn dialog-close" id="confirm-no">No</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="/js/app.js"></script>
+</body>
+</html>

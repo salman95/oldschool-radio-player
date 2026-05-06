@@ -1,0 +1,12 @@
+{
+  "name": "radio-app",
+  "version": "0.1.0",
+  "description": "Self-hosted internet radio app with Windows 98 aesthetic",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "better-sqlite3": "^12.9.0"
+  }
+}

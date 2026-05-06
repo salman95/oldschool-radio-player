@@ -1,0 +1,835 @@
+/* ============================================================
+   RadioApp &mdash; Windows 98 Aesthetic Stylesheet
+   ============================================================ */
+
+/* ---------- CSS Custom Properties ---------- */
+:root {
+  --win-bg:        #c0c0c0;
+  --win-bg-dark:   #808080;
+  --win-bg-darker: #404040;
+  --win-highlight: #ffffff;
+  --win-shadow:    #808080;
+  --win-deep:      #000000;
+  --win-title:     #000080;
+  --win-title-end: #1084d0;
+  --win-btn:       #c0c0c0;
+  --win-text:      #000000;
+  --win-link:      #0000ff;
+  --win-selected:  #000080;
+  --win-selected-t:#ffffff;
+  --win-green:     #008000;
+  --win-red:       #cc0000;
+  --border-raised: inset 1px 1px #fff, inset -1px -1px #808080,
+                   inset 2px 2px #dfdfdf, inset -2px -2px #808080;
+  --border-sunken: inset 1px 1px #808080, inset -1px -1px #fff,
+                   inset 2px 2px #404040, inset -2px -2px #fff;
+  --border-outset: 1px 1px #fff, -1px -1px #808080,
+                   2px 2px #dfdfdf, -2px -2px #808080;
+  --font-main:     "MS Sans Serif", "Microsoft Sans Serif", Tahoma, Geneva,
+                   "Segoe UI", sans-serif;
+  --font-mono:     "Courier New", Courier, monospace;
+}
+
+/* ---------- Reset & Base ---------- */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html {
+  font-size: 14px;
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  font-family: var(--font-main);
+  font-size: 1rem;
+  color: var(--win-text);
+  background-color: #008080; /* classic teal desktop */
+  background-image:
+    linear-gradient(rgba(0,0,0,0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0,0,0,0.03) 1px, transparent 1px);
+  background-size: 4px 4px;
+  min-height: 100vh;
+  padding: 12px;
+  line-height: 1.4;
+}
+
+/* ---------- Screens ---------- */
+.screen { display: none; }
+.screen.active { display: flex; }
+
+/* ---------- Login Screen ---------- */
+#login-screen {
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+}
+
+.login-window {
+  width: 100%;
+  max-width: 380px;
+}
+
+.login-content {
+  text-align: center;
+  padding: 16px 24px 24px;
+}
+
+.login-icon { margin-bottom: 12px; }
+
+.login-content h2 {
+  font-size: 1.1rem;
+  margin-bottom: 4px;
+}
+
+.login-subtitle {
+  font-size: 0.85rem;
+  color: #444;
+  margin-bottom: 20px;
+}
+
+.login-note {
+  font-size: 0.75rem;
+  color: #666;
+  margin-top: 12px;
+}
+
+kbd {
+  background: var(--win-bg);
+  border: 1px solid var(--win-shadow);
+  box-shadow: inset -1px -1px #000;
+  padding: 1px 5px;
+  font-family: var(--font-main);
+  font-size: 0.8rem;
+  border-radius: 2px;
+}
+
+/* ---------- Window ---------- */
+.window {
+  background: var(--win-bg);
+  border: 2px solid;
+  border-color: #fff var(--win-deep) var(--win-deep) #fff;
+  box-shadow: 1px 1px 0 0 #000;
+  width: 100%;
+  max-width: 900px;
+  margin: 0 auto;
+}
+
+.main-window {
+  max-width: 960px;
+}
+
+/* Title Bar */
+.title-bar {
+  background: linear-gradient(90deg, var(--win-title), var(--win-title-end));
+  color: #fff;
+  padding: 3px 4px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  user-select: none;
+}
+
+.title-bar-text {
+  font-weight: bold;
+  font-size: 0.85rem;
+  padding-left: 4px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.app-icon {
+  font-size: 1rem;
+}
+
+.title-bar-controls {
+  display: flex;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+.title-bar-btn {
+  width: 18px;
+  height: 16px;
+  font-size: 0.7rem;
+  font-weight: bold;
+  background: var(--win-btn);
+  border: 1px solid;
+  border-color: #fff var(--win-deep) var(--win-deep) #fff;
+  box-shadow: 1px 1px 0 #000;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  line-height: 1;
+  color: #000;
+}
+
+.title-bar-btn:active {
+  border-color: var(--win-deep) #fff #fff var(--win-deep);
+  box-shadow: none;
+  padding-top: 2px;
+  padding-left: 2px;
+}
+
+/* Window Body */
+.window-body {
+  padding: 8px;
+}
+
+/* ---------- Menu Bar ---------- */
+.menu-bar {
+  display: flex;
+  background: var(--win-bg);
+  border-bottom: 1px solid var(--win-shadow);
+  padding: 0;
+  flex-wrap: wrap;
+}
+
+.menu-item {
+  background: transparent;
+  border: none;
+  padding: 4px 10px;
+  font-family: var(--font-main);
+  font-size: 0.85rem;
+  cursor: pointer;
+  color: var(--win-text);
+}
+
+.menu-item:hover {
+  background: var(--win-title);
+  color: #fff;
+}
+
+.menu-item:active {
+  background: var(--win-title);
+  color: #fff;
+  box-shadow: var(--border-sunken);
+}
+
+/* ---------- Main Content ---------- */
+.main-content {
+  padding: 12px;
+}
+
+/* ---------- User Badge ---------- */
+.user-badge {
+  background: #ffffcc;
+  border: 1px solid #c0c000;
+  padding: 6px 10px;
+  margin-bottom: 12px;
+  font-size: 0.85rem;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.role-tag {
+  font-size: 0.7rem;
+  padding: 2px 6px;
+  border-radius: 2px;
+  font-weight: bold;
+  text-transform: uppercase;
+}
+
+.admin-tag {
+  background: var(--win-title);
+  color: #fff;
+}
+
+.listener-tag {
+  background: var(--win-green);
+  color: #fff;
+}
+
+/* ---------- Sections ---------- */
+.section {
+  margin-bottom: 16px;
+}
+
+.section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.section-header h3 {
+  font-size: 0.95rem;
+  font-weight: bold;
+}
+
+/* ---------- Sunken Panel ---------- */
+.sunken-panel {
+  background: #fff;
+  border: 2px solid;
+  border-color: var(--win-shadow) #fff #fff var(--win-shadow);
+}
+
+/* ---------- Station Table ---------- */
+.station-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+
+.station-table thead {
+  background: var(--win-bg);
+  border-bottom: 1px solid var(--win-shadow);
+}
+
+.station-table th {
+  padding: 6px 10px;
+  text-align: left;
+  font-weight: bold;
+  font-size: 0.8rem;
+  border-right: 1px solid var(--win-shadow);
+  border-bottom: 1px solid var(--win-shadow);
+  white-space: nowrap;
+}
+
+.station-table th:last-child {
+  border-right: none;
+}
+
+.station-table td {
+  padding: 6px 10px;
+  border-bottom: 1px solid #e0e0e0;
+  vertical-align: middle;
+}
+
+.station-table tbody tr:hover {
+  background: #e8e8e8;
+  cursor: pointer;
+}
+
+.station-table tbody tr.selected {
+  background: var(--win-selected);
+  color: var(--win-selected-t);
+}
+
+.col-status { width: 30px; text-align: center; }
+.col-name { font-weight: bold; }
+.col-tracks { text-align: center; font-size: 0.8rem; color: #555; }
+.col-listeners { text-align: center; font-size: 0.8rem; color: #555; width: 50px; }
+.col-dir  { color: #666; font-family: var(--font-mono); font-size: 0.8rem; }
+.col-actions { white-space: nowrap; }
+.col-num  { width: 30px; text-align: center; color: #888; font-size: 0.8rem; }
+.col-size { text-align: right; color: #888; font-size: 0.75rem; font-family: var(--font-mono); }
+
+/* Status Dot */
+.status-dot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #808080;
+  border: 1px solid #666;
+}
+
+.status-dot.active {
+  background: var(--win-green);
+  border-color: #006600;
+  box-shadow: 0 0 4px rgba(0, 128, 0, 0.5);
+}
+
+.status-dot.broadcasting {
+  background: #ff0000;
+  border-color: #cc0000;
+  box-shadow: 0 0 6px rgba(255, 0, 0, 0.6);
+  animation: broadcastPulse 1.5s ease-in-out infinite;
+}
+
+@keyframes broadcastPulse {
+  0%, 100% { box-shadow: 0 0 4px rgba(255, 0, 0, 0.4); }
+  50% { box-shadow: 0 0 10px rgba(255, 0, 0, 0.8); }
+}
+
+.broadcasting-label {
+  font-size: 0.65rem;
+  color: var(--win-red);
+  font-weight: bold;
+  text-transform: uppercase;
+  display: block;
+}
+
+/* ---------- Player Panel (WinAmp style) ---------- */
+.player-panel {
+  background: linear-gradient(180deg, #e0e0e0 0%, #c0c0c0 40%, #a0a0a0 100%);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border: 2px solid;
+  border-color: var(--win-deep) var(--win-highlight) var(--win-highlight) var(--win-deep);
+}
+
+/* Station Badge */
+.station-badge {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+  background: var(--win-deep);
+  color: #fff;
+  font-size: 0.8rem;
+  font-weight: bold;
+}
+
+.station-icon {
+  font-size: 1rem;
+}
+
+.station-name {
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.status-indicator {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #555;
+  flex-shrink: 0;
+}
+
+.status-indicator.tunedin {
+  background: #00ff00;
+  box-shadow: 0 0 6px rgba(0, 255, 0, 0.6);
+  animation: dblPulse 2s ease-in-out infinite;
+}
+
+.status-indicator.broadcasting {
+  background: #ff0000;
+  box-shadow: 0 0 6px rgba(255, 0, 0, 0.6);
+  animation: broadcastPulse 1.5s ease-in-out infinite;
+}
+
+@keyframes dblPulse {
+  0%, 100% { box-shadow: 0 0 4px rgba(0, 255, 0, 0.3); }
+  50% { box-shadow: 0 0 10px rgba(0, 255, 0, 0.8); }
+}
+
+/* Track Display (marquee) */
+.track-display {
+  background: #000;
+  border: 2px solid;
+  border-color: var(--win-shadow) var(--win-highlight) var(--win-highlight) var(--win-shadow);
+  padding: 4px 6px;
+  overflow: hidden;
+  height: 32px;
+  display: flex;
+  align-items: center;
+}
+
+.track-marquee {
+  white-space: nowrap;
+  overflow: hidden;
+  width: 100%;
+}
+
+.track-marquee span {
+  display: inline-block;
+  color: #00ff00;
+  font-family: "Lucida Console", "Courier New", monospace;
+  font-size: 0.85rem;
+  white-space: nowrap;
+  padding-left: 100%;
+  animation: marquee 15s linear infinite;
+}
+
+@keyframes marquee {
+  0% { transform: translateX(0); }
+  100% { transform: translateX(-100%); }
+}
+
+/* Mini Visualizer */
+.mini-visualizer {
+  background: #000;
+  border: 2px solid;
+  border-color: var(--win-shadow) var(--win-highlight) var(--win-highlight) var(--win-shadow);
+  padding: 2px;
+  display: flex;
+  justify-content: center;
+}
+
+#visualizer {
+  width: 100%;
+  max-width: 400px;
+  height: 36px;
+  display: block;
+}
+
+/* Player Controls */
+.player-controls {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.player-controls .btn-sm {
+  padding: 4px 14px;
+  font-size: 0.85rem;
+  min-width: 100px;
+}
+
+.volume-control {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.85rem;
+}
+
+.volume-control label {
+  cursor: pointer;
+}
+
+.volume-control input[type="range"] {
+  width: 80px;
+  height: 6px;
+  -webkit-appearance: none;
+  appearance: none;
+  background: linear-gradient(to right, var(--win-green) 0%, var(--win-green) 75%, #ddd 75%);
+  border: 1px solid var(--win-shadow);
+  cursor: pointer;
+}
+
+.volume-control input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 12px;
+  height: 20px;
+  background: var(--win-bg);
+  border: 1px solid;
+  border-color: #fff var(--win-deep) var(--win-deep) #fff;
+  cursor: pointer;
+}
+
+.volume-control input[type="range"]::-moz-range-thumb {
+  width: 12px;
+  height: 20px;
+  background: var(--win-bg);
+  border: 1px solid;
+  border-color: #fff var(--win-deep) var(--win-deep) #fff;
+  cursor: pointer;
+  border-radius: 0;
+}
+
+/* ---------- Buttons ---------- */
+.btn {
+  background: var(--win-btn);
+  border: 2px solid;
+  border-color: #fff var(--win-deep) var(--win-deep) #fff;
+  box-shadow: 1px 1px 0 #000;
+  padding: 4px 16px;
+  font-family: var(--font-main);
+  font-size: 0.85rem;
+  cursor: pointer;
+  color: var(--win-text);
+  white-space: nowrap;
+}
+
+.btn:hover {
+  background: #d0d0d0;
+}
+
+.btn:active {
+  border-color: var(--win-deep) #fff #fff var(--win-deep);
+  box-shadow: none;
+  padding: 5px 15px 3px 17px; /* shift text to simulate press */
+}
+
+.btn:disabled {
+  color: var(--win-shadow);
+  cursor: not-allowed;
+}
+
+.btn-primary {
+  position: relative;
+  outline: 1px dotted var(--win-deep);
+  outline-offset: -4px;
+}
+
+.btn-danger {
+  color: var(--win-red);
+}
+
+.btn-sm {
+  padding: 2px 8px;
+  font-size: 0.75rem;
+}
+
+.btn-lg {
+  padding: 8px 24px;
+  font-size: 1rem;
+}
+
+/* ---------- Forms ---------- */
+.form-group {
+  margin-bottom: 14px;
+}
+
+.form-group label {
+  display: block;
+  font-size: 0.85rem;
+  margin-bottom: 4px;
+  font-weight: bold;
+}
+
+.form-group input[type="text"],
+.form-group input[type="password"] {
+  width: 100%;
+  padding: 4px 6px;
+  font-family: var(--font-main);
+  font-size: 0.9rem;
+  border: 2px solid;
+  border-color: var(--win-shadow) #fff #fff var(--win-shadow);
+  background: #fff;
+  box-shadow: inset 1px 1px #000;
+}
+
+.form-group input:focus {
+  outline: none;
+  border-color: var(--win-title) #fff #fff var(--win-title);
+}
+
+.form-actions {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+/* ---------- Dialog Overlay ---------- */
+.dialog-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.3);
+  z-index: 100;
+  align-items: center;
+  justify-content: center;
+  padding: 12px;
+}
+
+.dialog-overlay.active {
+  display: flex;
+}
+
+.dialog-window {
+  width: 100%;
+  max-width: 400px;
+}
+
+.dialog-window .window-body {
+  padding: 16px 24px 24px;
+}
+
+.confirm-content p {
+  text-align: center;
+  margin-bottom: 4px;
+  font-size: 0.9rem;
+}
+
+/* ---------- Status Bar ---------- */
+.status-bar {
+  background: var(--win-bg);
+  border-top: 1px solid var(--win-shadow);
+  padding: 3px 8px;
+  display: flex;
+  align-items: center;
+  font-size: 0.75rem;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.status-bar span {
+  padding: 1px 6px;
+  border: 1px solid;
+  border-color: var(--win-shadow) #fff #fff var(--win-shadow);
+}
+
+.status-separator {
+  border: none !important;
+  padding: 0 !important;
+}
+
+/* ---------- Admin-Only Elements ---------- */
+.admin-only { display: none; }
+body.admin-mode .admin-only { display: inline; }
+body.admin-mode .admin-only.btn { display: inline-block; }
+body.admin-mode .admin-only td,
+body.admin-mode .admin-only th { display: table-cell; }
+body.admin-mode .admin-only.menu-item { display: block; }
+
+/* ---------- Views (tabs) ---------- */
+.view { display: none; }
+.view.active { display: block; }
+
+/* ---------- Menu Spacer ---------- */
+.menu-spacer { flex: 1; }
+
+/* ---------- Error Messages ---------- */
+.error-msg {
+  color: var(--win-red);
+  font-size: 0.8rem;
+  margin-bottom: 8px;
+  min-height: 1.2em;
+}
+
+/* ---------- Info Messages ---------- */
+.info-msg {
+  color: var(--win-green);
+  font-size: 0.8rem;
+  margin-bottom: 8px;
+  min-height: 1.2em;
+}
+
+/* ---------- Queue Count ---------- */
+.queue-count {
+  font-size: 0.8rem;
+  color: #555;
+  font-family: var(--font-mono);
+}
+
+/* ---------- Loading Row ---------- */
+.loading-row {
+  text-align: center !important;
+  color: #888;
+  font-style: italic;
+  padding: 16px !important;
+}
+
+/* ---------- Win Select ---------- */
+.win-select {
+  width: 100%;
+  padding: 4px 6px;
+  font-family: var(--font-main);
+  font-size: 0.9rem;
+  border: 2px solid;
+  border-color: var(--win-shadow) #fff #fff var(--win-shadow);
+  background: #fff;
+  box-shadow: inset 1px 1px #000;
+  cursor: pointer;
+}
+.win-select:focus {
+  outline: none;
+  border-color: var(--win-title) #fff #fff var(--win-title);
+}
+
+/* ---------- Role Badge in Tables ---------- */
+.role-badge {
+  display: inline-block;
+  font-size: 0.7rem;
+  padding: 1px 6px;
+  border-radius: 2px;
+  font-weight: bold;
+  text-transform: uppercase;
+}
+.role-badge.admin { background: var(--win-title); color: #fff; }
+.role-badge.listener { background: var(--win-green); color: #fff; }
+
+/* ---------- Log Action Colors ---------- */
+.log-action {
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+}
+.log-action.login, .log-action.logout { color: var(--win-green); }
+.log-action.login_failed { color: var(--win-red); }
+.log-action.station_created { color: #008080; }
+.log-action.station_deleted { color: var(--win-red); }
+.log-action.user_created { color: #800080; }
+.log-action.user_deleted { color: var(--win-red); }
+
+/* ---------- Log Detail ---------- */
+.log-detail {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: #555;
+}
+.log-ip {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: #888;
+}
+
+/* ---------- Responsive ---------- */
+@media (max-width: 640px) {
+  body { padding: 4px; }
+
+  .window {
+    border-width: 1px;
+    box-shadow: none;
+  }
+
+  .title-bar-text { font-size: 0.8rem; }
+
+  .menu-bar { gap: 0; }
+  .menu-item { padding: 4px 6px; font-size: 0.75rem; }
+
+  .main-content { padding: 8px; }
+
+  .station-table { font-size: 0.75rem; }
+  .station-table th,
+  .station-table td { padding: 4px 6px; }
+
+  .col-dir { display: none; }
+  .col-tracks { display: none; }
+  .col-listeners { display: none; }
+
+  .section-header { flex-direction: column; align-items: flex-start; }
+
+  .player-controls { flex-direction: column; gap: 8px; }
+
+  .player-controls .btn-sm { min-width: 80px; padding: 4px 10px; }
+
+  .volume-control input[type="range"] { width: 100px; }
+
+  #visualizer { height: 28px; }
+
+  .track-display { height: 28px; }
+  .track-marquee span { font-size: 0.75rem; }
+
+  .user-badge { flex-direction: column; align-items: flex-start; gap: 4px; }
+}
+
+@media (max-width: 400px) {
+  .col-actions .btn-sm { padding: 2px 4px; font-size: 0.7rem; }
+  .title-bar-controls { gap: 1px; }
+  .title-bar-btn { width: 16px; height: 14px; font-size: 0.6rem; }
+}
+
+/* ---------- Animations ---------- */
+@keyframes dotPulse {
+  0%, 100% { box-shadow: 0 0 4px rgba(0, 128, 0, 0.3); }
+  50% { box-shadow: 0 0 8px rgba(0, 128, 0, 0.8); }
+}
+
+.status-dot.active {
+  animation: dotPulse 2s ease-in-out infinite;
+}
+
+/* ---------- Scrollbar (Webkit) ---------- */
+::-webkit-scrollbar { width: 16px; height: 16px; }
+::-webkit-scrollbar-track { background: var(--win-bg); border: 1px solid var(--win-shadow); }
+::-webkit-scrollbar-thumb {
+  background: var(--win-bg);
+  border: 2px solid;
+  border-color: #fff var(--win-deep) var(--win-deep) #fff;
+}
+::-webkit-scrollbar-button {
+  background: var(--win-bg);
+  border: 1px solid;
+  border-color: #fff var(--win-deep) var(--win-deep) #fff;
+  width: 16px;
+  height: 16px;
+}
