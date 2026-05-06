@@ -16,6 +16,8 @@
     animationId: null,
     stations: [],
     audioElement: null,
+    audioContext: null,
+    analyser: null,
     statusPollTimer: null,
   };
 
@@ -143,7 +145,7 @@
     item.addEventListener('click', function () {
       var menu = item.dataset.menu;
       if (menu === 'help') {
-        setStatus('RadioApp v0.1 \u2014 Self-hosted internet radio');
+        showView('help');
         return;
       }
       showView(menu);
@@ -322,6 +324,20 @@
     state.audioElement.volume = state.volume / 100;
     state.audioElement.preload = 'auto';
 
+    // Set up Web Audio API for real-time visualizer
+    try {
+      state.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+      state.analyser = state.audioContext.createAnalyser();
+      state.analyser.fftSize = 256;
+      var source = state.audioContext.createMediaElementSource(state.audioElement);
+      source.connect(state.analyser);
+      state.analyser.connect(state.audioContext.destination);
+    } catch (e) {
+      console.warn('Web Audio not available, using fake visualizer');
+      state.audioContext = null;
+      state.analyser = null;
+    }
+
     // Store which station this audio element is connected to
     state.tunedStationId = stationId;
 
@@ -372,7 +388,12 @@
     startStatusPoll(stationId);
 
     state.audioElement.src = '/stream?station_id=' + stationId;
-    state.audioElement.play().catch(function (err) {
+    state.audioElement.play().then(function () {
+      // Resume AudioContext if it was suspended (browser policy)
+      if (state.audioContext && state.audioContext.state === 'suspended') {
+        state.audioContext.resume();
+      }
+    }).catch(function (err) {
       console.error('Play failed:', err);
       setStatus('Could not connect to stream');
     });
@@ -383,6 +404,11 @@
       state.audioElement.pause();
       state.audioElement.src = '';
       state.audioElement = null;
+    }
+    if (state.audioContext) {
+      state.audioContext.close();
+      state.audioContext = null;
+      state.analyser = null;
     }
     if (state.statusPollTimer) {
       clearInterval(state.statusPollTimer);
@@ -834,12 +860,28 @@
     ctx.fillStyle = '#000';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
+    // Get real frequency data if available, otherwise use fake data
+    var freqData;
+    if (state.analyser) {
+      freqData = new Uint8Array(state.analyser.frequencyBinCount);
+      state.analyser.getByteFrequencyData(freqData);
+    }
+
     for (var i = 0; i < barCount; i++) {
-      var time = Date.now() / 200;
-      var freq = Math.sin(time + i * 0.3) * 0.5 + 0.5;
-      var amp = Math.sin(time * 0.7 + i * 0.15) * 0.3 + 0.7;
-      var noise = Math.random() * 0.2;
-      var height = Math.max(2, (freq * amp + noise) * maxH);
+      var height;
+      if (freqData) {
+        // Map frequency bins to bar positions (256 bins, skip first few bass bins)
+        var bin = Math.floor((i / barCount) * (freqData.length - 4)) + 2;
+        var val = freqData[Math.min(bin, freqData.length - 1)] / 255;
+        height = Math.max(2, val * val * maxH); // square for visual punch
+      } else {
+        // Fallback: fake animation
+        var time = Date.now() / 200;
+        var freq = Math.sin(time + i * 0.3) * 0.5 + 0.5;
+        var amp = Math.sin(time * 0.7 + i * 0.15) * 0.3 + 0.7;
+        var noise = Math.random() * 0.2;
+        height = Math.max(2, (freq * amp + noise) * maxH);
+      }
 
       var ratio = height / maxH;
       var r, g, b;
