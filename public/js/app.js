@@ -19,6 +19,7 @@
     audioContext: null,
     analyser: null,
     statusPollTimer: null,
+    metadataTimer: null,
   };
 
   // ===================== DOM Helpers =====================
@@ -199,7 +200,8 @@
         actionsHtml += ' <button class="btn btn-sm btn-danger" data-action="delete" data-station="' + station.id + '">&#10006;</button>';
       } else {
         // Listener: Tune In/Disconnect
-        if (station.is_playing) {
+        // Remote streams are always available; local streams need is_playing
+        if (station.stream_url || station.is_playing) {
           if (state.isTunedIn && state.currentStation && state.currentStation.id === station.id) {
             actionsHtml = '<button class="btn btn-sm btn-danger" data-action="disconnect" data-station="' + station.id + '">&#9632; Disconnect</button>';
           } else {
@@ -212,7 +214,9 @@
 
       tr.innerHTML =
         '<td class="col-status">' + statusHtml + '</td>' +
-        '<td class="col-name">' + esc(station.name) + '</td>' +
+        '<td class="col-name">' +
+          (station.stream_url ? '<span class="stream-badge">&#127760;</span> ' : '<span class="stream-badge local">&#128193;</span> ') +
+          esc(station.name) + '</td>' +
         '<td class="col-tracks">' + station.track_count + ' tracks</td>' +
         '<td class="col-listeners">' + (station.is_playing ? station.listener_count : '\u2014') + '</td>' +
         '<td class="col-actions">' + actionsHtml + '</td>';
@@ -307,7 +311,8 @@
   async function tuneIntoStation(stationId) {
     var station = state.stations.find(function (s) { return s.id === stationId; });
     if (!station) return;
-    if (!station.is_playing) {
+    // Remote streams don't need Play/Stop — stream directly from URL
+    if (!station.stream_url && !station.is_playing) {
       setStatus('Station is not broadcasting');
       return;
     }
@@ -324,19 +329,8 @@
     state.audioElement.volume = state.volume / 100;
     state.audioElement.preload = 'auto';
 
-    // Set up Web Audio API for real-time visualizer
-    try {
-      state.audioContext = new (window.AudioContext || window.webkitAudioContext)();
-      state.analyser = state.audioContext.createAnalyser();
-      state.analyser.fftSize = 256;
-      var source = state.audioContext.createMediaElementSource(state.audioElement);
-      source.connect(state.analyser);
-      state.analyser.connect(state.audioContext.destination);
-    } catch (e) {
-      console.warn('Web Audio not available, using fake visualizer');
-      state.audioContext = null;
-      state.analyser = null;
-    }
+    // Web Audio API setup is deferred to after play() resolves
+    // (like spare.html does — prevents playback issues)
 
     // Store which station this audio element is connected to
     state.tunedStationId = stationId;
@@ -387,11 +381,27 @@
     updatePlayerDisplay();
     startStatusPoll(stationId);
 
-    state.audioElement.src = '/stream?station_id=' + stationId;
+    // Remote URL streams connect directly + fetch live song metadata
+    if (station.stream_url) {
+      state.audioElement.src = station.stream_url;
+      state.audioElement.crossOrigin = 'anonymous';
+      startMetadataPoll(station.stream_url);
+    } else {
+      state.audioElement.src = '/stream?station_id=' + stationId;
+    }
     state.audioElement.play().then(function () {
-      // Resume AudioContext if it was suspended (browser policy)
-      if (state.audioContext && state.audioContext.state === 'suspended') {
-        state.audioContext.resume();
+      // Set up Web Audio API after play starts (like spare.html)
+      try {
+        state.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        state.analyser = state.audioContext.createAnalyser();
+        state.analyser.fftSize = 256;
+        var source = state.audioContext.createMediaElementSource(state.audioElement);
+        source.connect(state.analyser);
+        state.analyser.connect(state.audioContext.destination);
+      } catch (e) {
+        console.warn('Web Audio not available, using fake visualizer');
+        state.audioContext = null;
+        state.analyser = null;
       }
     }).catch(function (err) {
       console.error('Play failed:', err);
@@ -414,6 +424,7 @@
       clearInterval(state.statusPollTimer);
       state.statusPollTimer = null;
     }
+    stopMetadataPoll();
     state.isTunedIn = false;
     state.tunedStationId = null;
     stopVisualizer();
@@ -437,6 +448,48 @@
 
     // Re-render station list to update Tune In/Disconnect buttons
     renderStations();
+  }
+
+  // ===================== Metadata Fetching for Remote Streams =====================
+  // Fetches Icecast/SHOUTcast metadata showing current song title.
+
+  async function fetchStationMetadata(stationUrl) {
+    try {
+      var base = new URL(stationUrl).origin;
+      var resp = await fetch(base + '/status-json.xsl', { mode: 'cors' });
+      if (!resp.ok) return null;
+      var data = await resp.json();
+      if (data && data.icestats && data.icestats.source) {
+        var source = Array.isArray(data.icestats.source) ? data.icestats.source[0] : data.icestats.source;
+        if (source && source.title) {
+          return source.title;
+        }
+      }
+      return null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function startMetadataPoll(stationUrl) {
+    if (state.metadataTimer) clearInterval(state.metadataTimer);
+    state.metadataTimer = setInterval(async function () {
+      var track = await fetchStationMetadata(stationUrl);
+      if (track) {
+        $('#track-artist-title').textContent = track;
+      }
+    }, 15000);
+    // Initial fetch immediately
+    fetchStationMetadata(stationUrl).then(function (track) {
+      if (track) $('#track-artist-title').textContent = track;
+    });
+  }
+
+  function stopMetadataPoll() {
+    if (state.metadataTimer) {
+      clearInterval(state.metadataTimer);
+      state.metadataTimer = null;
+    }
   }
 
   // ===================== Status Polling =====================
@@ -476,19 +529,20 @@
     e.preventDefault();
     var name = $('#station-name').value.trim();
     var dir = $('#station-dir').value.trim();
+    var url = $('#station-url').value.trim();
     var errorMsg = $('#add-station-error');
     var infoMsg = $('#add-station-info');
     var submitBtn = $('#add-station-submit');
-    if (!name || !dir) return;
+    if (!name || (!dir && !url)) { setStatus('Enter a directory or stream URL'); return; }
 
     submitBtn.disabled = true;
-    submitBtn.textContent = 'Scanning...';
+    submitBtn.textContent = 'Adding...';
     errorMsg.textContent = '';
     infoMsg.textContent = '';
 
     var result = await api('/stations', {
       method: 'POST',
-      body: JSON.stringify({ name: name, stream_dir: dir }),
+      body: JSON.stringify({ name: name, stream_dir: dir, stream_url: url }),
     });
 
     submitBtn.disabled = false;
@@ -499,16 +553,20 @@
       return;
     }
 
-    infoMsg.textContent = 'Created! ' + result.tracks_found + ' tracks found.';
-    if (result.scan_errors && result.scan_errors.length > 0) {
-      infoMsg.textContent += ' (' + result.scan_errors.length + ' warnings)';
+    if (result.stream_url) {
+      infoMsg.textContent = 'Remote station added! Click Play to start.';
+    } else {
+      infoMsg.textContent = 'Created! ' + result.tracks_found + ' tracks found.';
+      if (result.scan_errors && result.scan_errors.length > 0) {
+        infoMsg.textContent += ' (' + result.scan_errors.length + ' warnings)';
+      }
     }
 
     addStationDialog.classList.remove('active');
     this.reset();
     errorMsg.textContent = '';
     await loadStations();
-    setStatus('Station "' + name + '" added \u2014 ' + result.tracks_found + ' tracks found');
+    setStatus('Station "' + name + '" added');
   });
 
   // ===================== Tracks =====================
@@ -804,7 +862,7 @@
       setStatus('Please select a station first');
       return;
     }
-    if (state.currentStation.is_playing) {
+    if (state.currentStation.stream_url || state.currentStation.is_playing) {
       tuneIntoStation(state.currentStation.id);
     } else {
       setStatus('Station is not broadcasting');

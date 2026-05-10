@@ -13,7 +13,8 @@ class StationPlayer {
   constructor(stationId, stationName, tracks, onEvent) {
     this.stationId = stationId;
     this.stationName = stationName;
-    this.tracks = tracks;
+    this.tracks = tracks || [];
+    this.streamUrl = null;
     this.onEvent = onEvent || (() => {});
 
     this.isPlaying = false;
@@ -25,6 +26,10 @@ class StationPlayer {
     this._fileSize = 0;
     this._filePos = 0;
     this._timer = null;
+
+    // Remote streaming state
+    this._remoteReq = null;
+    this._reconnectTimer = null;
 
     // FLAC transcoding
     this._ffmpegProcess = null;
@@ -41,6 +46,9 @@ class StationPlayer {
     // Listeners
     this._listeners = new Set();
 
+    // Idle timeout: stop if no listeners for 2 minutes
+    this._idleTimer = null;
+
     // Pacing: 16KB every 375ms = 43 KB/s = 344 kbps
     this.CHUNK = 16 * 1024;
     this.INTERVAL = 375;
@@ -48,12 +56,23 @@ class StationPlayer {
 
   start() {
     if (this.isPlaying) return;
+    this.isPlaying = true;
+    this.currentTrackIndex = -1;
+
+    if (this.streamUrl) {
+      // Remote stream — no tracks needed
+      this.currentTrackName = this.stationName;
+      this.onEvent(this.stationId, 'track_change', this.currentTrackName);
+      this._playRemote();
+      this.onEvent(this.stationId, 'started', this.stationName);
+      return;
+    }
+
     if (this.tracks.length === 0) {
+      this.isPlaying = false;
       this.onEvent(this.stationId, 'error', 'No tracks');
       return;
     }
-    this.isPlaying = true;
-    this.currentTrackIndex = -1;
     this._shuffleTracks();
     this._nextTrack();
     this.onEvent(this.stationId, 'started', this.stationName);
@@ -85,6 +104,10 @@ class StationPlayer {
     this._ffmpegQueue = [];
     this._ffmpegDraining = false;
     if (this._timer) { clearTimeout(this._timer); this._timer = null; }
+    if (this._idleTimer) { clearTimeout(this._idleTimer); this._idleTimer = null; }
+
+    if (this._reconnectTimer) { clearTimeout(this._reconnectTimer); this._reconnectTimer = null; }
+    if (this._remoteReq) { this._remoteReq.destroy(); this._remoteReq = null; }
   }
 
   _closeFile() {
@@ -105,7 +128,20 @@ class StationPlayer {
     const listener = { res, draining: false };
     this._listeners.add(listener);
 
-    res.on('close', () => { this._listeners.delete(listener); });
+    // Reset idle timeout on new listener
+    if (this._idleTimer) { clearTimeout(this._idleTimer); this._idleTimer = null; }
+
+    // Send backlog from remote stream buffer so new listener gets data immediately
+    if (this._remoteBuffer && this._remoteBuffer.length > 0) {
+      for (var i = 0; i < this._remoteBuffer.length; i++) {
+        try { if (!res.write(this._remoteBuffer[i])) break; } catch (e) { break; }
+      }
+    }
+
+    res.on('close', () => {
+      this._listeners.delete(listener);
+      this._checkIdle();
+    });
 
     return listener;
   }
@@ -180,55 +216,7 @@ class StationPlayer {
     }
   }
 
-  // ---- AI News Playback ----
-  // Reads the news file in paced 16KB chunks at the same rate as music
-  // (375ms per chunk), then seamlessly transitions to the next track.
-  // No artificial delay — the browser receives continuous data.
-
-  _playNewsFile(filepath) {
-    try {
-      const stat = fs.statSync(filepath);
-      if (!stat || stat.size === 0) { setImmediate(() => this._nextTrack()); return; }
-
-      this._fd = fs.openSync(filepath, 'r');
-      this._fileSize = stat.size;
-      this._filePos = 0;
-      this._scheduleNewsRead();
-    } catch (e) {
-      setImmediate(() => this._nextTrack());
-    }
-  }
-
-  _scheduleNewsRead() {
-    if (!this.isPlaying || !this._fd) return;
-
-    const remaining = this._fileSize - this._filePos;
-    if (remaining <= 0) {
-      this._closeFile();
-      setImmediate(() => this._nextTrack());
-      return;
-    }
-
-    const toRead = Math.min(this.CHUNK, remaining);
-    const buf = Buffer.alloc(toRead);
-
-    try {
-      const bytesRead = fs.readSync(this._fd, buf, 0, toRead, this._filePos);
-      if (bytesRead <= 0) {
-        this._closeFile();
-        setImmediate(() => this._nextTrack());
-        return;
-      }
-      this._filePos += bytesRead;
-      this._feed(buf.slice(0, bytesRead));
-    } catch (e) {
-      this._closeFile();
-      setImmediate(() => this._nextTrack());
-      return;
-    }
-
-    this._timer = setTimeout(() => this._scheduleNewsRead(), this.INTERVAL);
-  }
+  _playNewsFile(filepath) { this._openFile(filepath); }
 
   _openFile(filepath) {
     try {
@@ -313,6 +301,82 @@ class StationPlayer {
         console.error(`[player] ffmpeg error for ${path.basename(filepath)}`);
       }
     });
+  }
+
+  // ---- Remote Stream Playback ----
+  // Fetches a remote internet radio stream and re-broadcasts
+  // it to all connected listeners (proxy mode).
+
+  _playRemote() {
+    if (!this.isPlaying || !this.streamUrl) return;
+
+    // Transcode remote stream to MP3 via ffmpeg for universal browser support
+    const ffmpeg = spawn('ffmpeg', [
+      '-i', this.streamUrl,
+      '-f', 'mp3',
+      '-b:a', '128k',
+      '-ar', '44100',
+      '-ac', '2',
+      '-'  // output to stdout
+    ], { stdio: ['ignore', 'pipe', 'pipe'] });
+
+    this._remoteReq = ffmpeg;
+
+    // Buffer recent output so late-connecting listeners get data immediately
+    this._remoteBuffer = [];
+    this._remoteBufferSize = 0;
+    var MAX_BUF = 256 * 1024; // 256KB buffer
+
+    ffmpeg.stdout.on('data', (chunk) => {
+      this._feed(chunk);
+      // Keep a backlog for new listeners
+      this._remoteBuffer.push(chunk);
+      this._remoteBufferSize += chunk.length;
+      while (this._remoteBufferSize > MAX_BUF && this._remoteBuffer.length > 0) {
+        this._remoteBufferSize -= this._remoteBuffer.shift().length;
+      }
+    });
+
+    ffmpeg.stdout.on('end', () => {
+      // ffmpeg exited — try to reconnect
+      if (this.isPlaying) {
+        this._reconnectTimer = setTimeout(() => this._playRemote(), 5000);
+      }
+    });
+
+    ffmpeg.on('error', () => {
+      if (this.isPlaying) {
+        this._reconnectTimer = setTimeout(() => this._playRemote(), 5000);
+      }
+    });
+
+    ffmpeg.on('close', (code) => {
+      this._remoteReq = null;
+      if (this.isPlaying && code !== 0) {
+        this._reconnectTimer = setTimeout(() => this._playRemote(), 5000);
+      }
+    });
+
+    // Collect stderr for diagnostics
+    let stderr = '';
+    ffmpeg.stderr.on('data', (d) => { stderr += d.toString(); });
+    ffmpeg.stderr.on('end', () => {
+      if (stderr.includes('Error') || stderr.includes('error')) {
+        console.error('[player] ffmpeg error for remote stream:', stderr.slice(-300));
+      }
+    });
+  }
+
+  // ---- Idle Timeout ----
+  _checkIdle() {
+    if (this._listeners.size > 0) return;
+    if (this._idleTimer) clearTimeout(this._idleTimer);
+    this._idleTimer = setTimeout(() => {
+      if (this._listeners.size === 0 && this.isPlaying) {
+        console.log('[player] Auto-stopped ' + this.stationName + ' (idle 2min)');
+        this.stop();
+      }
+    }, 120000);
   }
 
   getStatus() {
