@@ -44,14 +44,9 @@ function onPlayerEvent(stationId, event, detail) {
   }
 }
 
-function getOrCreatePlayer(stationId, stationName) {
-  if (players.has(stationId)) {
-    return players.get(stationId);
-  }
-  const tracks = db.getTracksByStation.all(stationId);
-  const player = new StationPlayer(stationId, stationName, tracks, onPlayerEvent);
-  players.set(stationId, player);
-  return player;
+// On startup, reset all stations to offline since we no longer auto-restore
+function resetAllOffline() {
+  db.db.prepare('UPDATE stations SET online = 0').run();
 }
 
 function refreshPlayerTracks(stationId) {
@@ -151,6 +146,7 @@ function scanAndStore(stationId, streamDir) {
 /* ---------- API Routes ---------- */
 
 async function handleApi(req, res) {
+  try {
   const url = new URL(req.url, `http://localhost:${PORT}`);
   const pathname = url.pathname;
 
@@ -223,10 +219,11 @@ async function handleApi(req, res) {
         id: s.id,
         name: s.name,
         stream_dir: s.stream_dir,
+        stream_url: s.stream_url || '',
         online: !!s.online,
         track_count: trackCount,
-        is_playing: player ? player.isPlaying : false,
-        current_track: player ? player.currentTrackName : '',
+        is_playing: player ? player.isPlaying : !!s.stream_url,
+        current_track: player ? player.currentTrackName : (s.stream_url ? s.name : ''),
         listener_count: player ? player.listenerCount : 0,
         created_at: s.created_at,
       };
@@ -243,29 +240,34 @@ async function handleApi(req, res) {
       return;
     }
     const body = await parseBody(req);
-    const { name, stream_dir } = body;
-    if (!name || !stream_dir) {
+    const { name, stream_dir, stream_url } = body;
+    if (!name || (!stream_dir && !stream_url)) {
       jsonResponse(res, 400, { error: 'Name and stream_dir required' });
       return;
     }
 
-    const result = db.insertStation.run(name, stream_dir, 0);
+    const result = db.insertStation.run(name, stream_dir || '', stream_url || '', 0);
     const stationId = result.lastInsertRowid;
 
-    const scanResult = scanAndStore(stationId, stream_dir);
-    if (scanResult.error) {
-      logAction(session.userId, 'scan_error', `${name}: ${scanResult.error}`, getClientIp(req));
-    } else {
-      logAction(session.userId, 'station_created',
-        `${name} (${stream_dir}) \u2014 ${scanResult.count} tracks found`, getClientIp(req));
+    let tracks_found = 0, scan_errors = [];
+    if (stream_dir) {
+      const scanResult = scanAndStore(stationId, stream_dir);
+      tracks_found = scanResult.count || 0;
+      scan_errors = scanResult.errors || [];
+      if (scanResult.error) {
+        logAction(session.userId, 'scan_error', `${name}: ${scanResult.error}`, getClientIp(req));
+      } else {
+        logAction(session.userId, 'station_created', `${name} \u2014 ${tracks_found} tracks`, getClientIp(req));
+      }
     }
 
     jsonResponse(res, 201, {
       id: stationId,
       name,
-      stream_dir,
-      tracks_found: scanResult.count || 0,
-      scan_errors: scanResult.errors || [],
+      stream_dir: stream_dir || '',
+      stream_url: stream_url || '',
+      tracks_found,
+      scan_errors: scan_errors,
     });
     return;
   }
@@ -308,7 +310,8 @@ async function handleApi(req, res) {
     }
 
     const tracks = db.getTracksByStation.all(stationId);
-    if (tracks.length === 0) {
+    // Remote stream stations don't need local tracks
+    if (tracks.length === 0 && !station.stream_url) {
       jsonResponse(res, 400, { error: 'No tracks in this station' });
       return;
     }
@@ -316,10 +319,11 @@ async function handleApi(req, res) {
     let player = players.get(stationId);
     if (!player) {
       player = new StationPlayer(stationId, station.name, tracks, onPlayerEvent);
+      player.streamUrl = station.stream_url || null;
       players.set(stationId, player);
     } else {
-      // Refresh tracks in case they changed
       player.tracks = tracks;
+      player.streamUrl = station.stream_url || null;
     }
 
     if (player.isPlaying) {
@@ -363,6 +367,15 @@ async function handleApi(req, res) {
     if (!session) return;
 
     const stationId = parseInt(statusMatch[1], 10);
+    const station = db.getStationById.get(stationId);
+    if (!station) { jsonResponse(res, 404, { error: 'Station not found' }); return; }
+
+    // Remote URL stations are always available — no player needed
+    if (station.stream_url) {
+      jsonResponse(res, 200, { is_playing: true, current_track: station.name, currentTrack: station.name, listener_count: 0 });
+      return;
+    }
+
     const player = players.get(stationId);
     if (!player) {
       jsonResponse(res, 200, { is_playing: false });
@@ -583,6 +596,10 @@ async function handleApi(req, res) {
   }
 
   jsonResponse(res, 404, { error: 'API endpoint not found' });
+  } catch (e) {
+    console.error('[api] Unhandled error:', e.message);
+    jsonResponse(res, 500, { error: e.message || 'Internal error' });
+  }
 }
 
 /* ---------- Radio Stream Endpoint ---------- */
@@ -670,7 +687,11 @@ const server = http.createServer((req, res) => {
   const url = new URL(req.url, `http://localhost:${PORT}`);
 
   if (url.pathname.startsWith('/api/')) {
-    handleApi(req, res);
+    handleApi(req, res).catch(function (err) {
+      console.error('[server] API error:', err.message);
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: err.message || 'Internal server error' }));
+    });
   } else if (url.pathname === '/stream') {
     serveRadioStream(req, res);
   } else {
@@ -678,26 +699,12 @@ const server = http.createServer((req, res) => {
   }
 });
 
-// Auto-restart stations that were playing before restart
-function restoreStations() {
-  const playing = db.getAllStations.all().filter(s => s.online === 1);
-  if (playing.length === 0) return;
-  console.log(`[server] Restoring ${playing.length} station(s) that were playing before restart...`);
-  for (const s of playing) {
-    const tracks = db.getTracksByStation.all(s.id);
-    if (tracks.length === 0) {
-      console.log(`[server]  Skipping ${s.name}: no tracks`);
-      continue;
-    }
-    const player = new StationPlayer(s.id, s.name, tracks, onPlayerEvent);
-    players.set(s.id, player);
-    player.start();
-    console.log(`[server]  Restored ${s.name}`);
-  }
-}
+// Don't auto-restore stations on boot — the admin will click Play manually.
+// This avoids CPU spikes on startup from multiple stations running simultaneously.
+// The 'online' flag still persists in the DB so the admin knows which stations were active.
 
 server.listen(PORT, HOST, () => {
+  resetAllOffline();
   console.log(`Radio app running at http://${HOST}:${PORT}`);
   console.log(`Default admin: admin / admin123`);
-  restoreStations();
 });

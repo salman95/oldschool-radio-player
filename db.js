@@ -9,8 +9,9 @@ const db = new Database(DB_PATH);
 db.pragma('journal_mode = WAL');
 db.pragma('foreign_keys = ON');
 
-// Migration: add model column to ai_news if upgrading
+// Migrations: add columns if upgrading from older schema
 try { db.exec(`ALTER TABLE ai_news ADD COLUMN model TEXT DEFAULT 'deepseek-v4-flash'`); } catch (e) {}
+try { db.exec(`ALTER TABLE stations ADD COLUMN stream_url TEXT DEFAULT ''`); } catch (e) {}
 
 /* ---------- Schema ---------- */
 db.exec(`
@@ -37,7 +38,8 @@ db.exec(`
   CREATE TABLE IF NOT EXISTS stations (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
     name       TEXT    NOT NULL,
-    stream_dir TEXT    NOT NULL,
+    stream_dir TEXT    DEFAULT '',
+    stream_url TEXT    DEFAULT '',
     online     INTEGER NOT NULL DEFAULT 0,
     created_at TEXT    NOT NULL DEFAULT (datetime('now'))
   );
@@ -85,7 +87,7 @@ const getUserById = db.prepare(
 
 // Stations
 const insertStation = db.prepare(
-  `INSERT INTO stations (name, stream_dir, online) VALUES (?, ?, ?)`
+  `INSERT INTO stations (name, stream_dir, stream_url, online) VALUES (?, ?, ?, ?)`
 );
 const getAllStations = db.prepare(
   `SELECT * FROM stations ORDER BY name ASC`
@@ -102,9 +104,6 @@ const updateStationOnline = db.prepare(
 
 // Tracks
 const insertTrack = db.prepare(
-  `INSERT INTO tracks (station_id, filename, filepath, display_name, file_size) VALUES (?, ?, ?, ?, ?)`
-);
-const insertTrackMany = db.prepare(
   `INSERT INTO tracks (station_id, filename, filepath, display_name, file_size) VALUES (?, ?, ?, ?, ?)`
 );
 const deleteTracksByStation = db.prepare(
@@ -207,7 +206,6 @@ module.exports = {
   updateStationOnline,
   // track ops
   insertTrack,
-  insertTrackMany,
   deleteTracksByStation,
   getTracksByStation,
   getTrackCountByStation,

@@ -322,7 +322,12 @@
           </div>
           <div class="form-group">
             <label for="station-dir">Stream Directory:</label>
-            <input type="text" id="station-dir" placeholder="e.g. /music/jazz/" required>
+            <input type="text" id="station-dir" placeholder="e.g. /music/jazz/">
+          </div>
+          <div class="form-group">
+            <label for="station-url">Stream URL:</label>
+            <input type="text" id="station-url" placeholder="e.g. https://icecast.example.com/stream.mp3">
+            <div style="font-size:0.75rem;color:#888;margin-top:4px;">Provide a directory for local files OR a URL for a remote stream.</div>
           </div>
           <div id="add-station-error" class="error-msg"></div>
           <div id="add-station-info" class="info-msg"></div>

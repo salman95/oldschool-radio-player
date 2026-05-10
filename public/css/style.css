@@ -272,6 +272,16 @@ kbd {
   border-color: var(--win-shadow) #fff #fff var(--win-shadow);
 }
 
+/* ---------- Stream Badge ---------- */
+.stream-badge {
+  font-size: 0.8rem;
+  margin-right: 4px;
+  opacity: 0.7;
+}
+.stream-badge.local {
+  opacity: 0.5;
+}
+
 /* ---------- Station Table ---------- */
 .station-table {
   width: 100%;
