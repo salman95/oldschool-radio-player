@@ -7,7 +7,7 @@ const { scanDirectory } = require('./scanner');
 const { StationPlayer } = require('./player');
 const aiNews = require('./ai-news');
 
-const PORT = 6767;
+const PORT = process.env.PORT || 6767;
 const HOST = '0.0.0.0';
 const PUBLIC_DIR = path.join(__dirname, 'public');
 
