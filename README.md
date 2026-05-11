@@ -12,6 +12,47 @@ A self-hosted internet radio player with a **Windows 98/2000 aesthetic**, built 
 
 ---
 
+## Docker (Recommended)
+
+The easiest way to run RadioApp. See [DOCKER.md](DOCKER.md) for full details.
+
+```bash
+# Clone and prepare
+git clone <repo-url> radio-app
+cd radio-app
+
+# Create data directories (required for persistence)
+mkdir -p data music news-audio
+
+# Copy environment config
+cp .env.example .env
+
+# Start
+docker compose up -d
+```
+
+Visit `http://localhost:6767` — default login: `admin` / `admin123`.
+
+### Adding Music
+
+```bash
+mkdir -p music/jazz music/rock music/classical
+# Copy your audio files into those directories
+```
+
+In the app UI, add a station with **Stream Directory** set to `/app/music/jazz/`.
+
+### Changing the Port
+
+Edit `.env` and change `PORT=6767` to your desired port, then `docker compose up -d`.
+
+### Stopping
+
+```bash
+docker compose down          # stop, keep data
+docker compose down -v       # stop, remove all data
+```
+
 ## Features
 
 - **Live radio streaming** — All listeners hear identical audio simultaneously (byte-for-byte sync)

@@ -1,0 +1,35 @@
+services:
+  radio:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: radio-app
+    ports:
+      - "${PORT:-6767}:6767"
+    environment:
+      - NODE_ENV=production
+      - PORT=${PORT:-6767}
+      - DB_PATH=/app/data/radio.db
+      - TZ=${TZ:-UTC}
+    env_file:
+      - .env
+    volumes:
+      - ./data:/app/data
+      - /mnt/copyparty/music_collection:/app/music:ro
+      - news-audio:/app/public/news
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:' + (process.env.PORT||6767), r=>{process.exit(r.statusCode===200?0:1)})"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp:size=64M
+
+volumes:
+  news-audio:
