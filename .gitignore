@@ -5,3 +5,4 @@ radio.db-wal
 public/news/segment.mp3
 starter_prompt.txt
 *.log
+.env
