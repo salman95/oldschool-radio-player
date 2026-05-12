@@ -4,7 +4,7 @@
   "description": "Self-hosted internet radio app with Windows 98 aesthetic",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node --max-old-space-size=768 --max-semi-space-size=32 server.js"
   },
   "dependencies": {
     "better-sqlite3": "^12.9.0"

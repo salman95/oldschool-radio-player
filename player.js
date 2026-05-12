@@ -56,6 +56,7 @@ class StationPlayer {
 
   start() {
     if (this.isPlaying) return;
+    this._cleaned = false;
     this.isPlaying = true;
     this.currentTrackIndex = -1;
 
@@ -99,6 +100,10 @@ class StationPlayer {
   }
 
   _cleanup() {
+    // Guard against re-entrant cleanup
+    if (this._cleaned) return;
+    this._cleaned = true;
+
     this._closeFile();
     if (this._ffmpegProcess) { this._ffmpegProcess.kill(); this._ffmpegProcess = null; }
     this._ffmpegQueue = [];
@@ -108,6 +113,9 @@ class StationPlayer {
 
     if (this._reconnectTimer) { clearTimeout(this._reconnectTimer); this._reconnectTimer = null; }
     if (this._remoteReq) { this._remoteReq.destroy(); this._remoteReq = null; }
+    this._reconnecting = false;
+    this._remoteBuffer = [];
+    this._remoteBufferSize = 0;
   }
 
   _closeFile() {
@@ -271,6 +279,15 @@ class StationPlayer {
     this._ffmpegQueue = [];
     this._ffmpegDraining = false;
 
+    // Guard against duplicate _nextTrack calls from multiple events
+    var trackAdvanced = false;
+    const advanceTrack = () => {
+      if (trackAdvanced) return;
+      trackAdvanced = true;
+      ffmpeg.kill();
+      setImmediate(() => this._nextTrack());
+    };
+
     ffmpeg.stdout.on('data', (chunk) => {
       // Break into 16KB pieces and queue them
       for (let i = 0; i < chunk.length; i += this.CHUNK) {
@@ -288,16 +305,20 @@ class StationPlayer {
       }
     });
 
-    ffmpeg.stdout.on('end', () => { ffmpeg.kill(); setImmediate(() => this._nextTrack()); });
-    ffmpeg.on('error', () => { ffmpeg.kill(); setImmediate(() => this._nextTrack()); });
+    ffmpeg.stdout.on('end', () => { advanceTrack(); });
+    ffmpeg.on('error', () => { advanceTrack(); });
     ffmpeg.on('close', (code) => {
-      if (code !== 0 && this._ffmpegQueue.length === 0) setImmediate(() => this._nextTrack());
+      if (code !== 0 && this._ffmpegQueue.length === 0) advanceTrack();
     });
 
-    let stderr = '';
-    ffmpeg.stderr.on('data', (d) => { stderr += d.toString(); });
+    // Collect only trailing stderr — bounded to 2KB to prevent memory leak
+    var stderrTail = '';
+    ffmpeg.stderr.on('data', (d) => {
+      stderrTail += d.toString();
+      if (stderrTail.length > 2048) stderrTail = stderrTail.slice(-2048);
+    });
     ffmpeg.stderr.on('end', () => {
-      if (this._ffmpegQueue.length === 0 && stderr.includes('Error')) {
+      if (this._ffmpegQueue.length === 0 && stderrTail.includes('Error')) {
         console.error(`[player] ffmpeg error for ${path.basename(filepath)}`);
       }
     });
@@ -309,6 +330,10 @@ class StationPlayer {
 
   _playRemote() {
     if (!this.isPlaying || !this.streamUrl) return;
+
+    // Guard against duplicate reconnect timers firing
+    if (this._reconnecting) return;
+    this._reconnecting = true;
 
     // Transcode remote stream to MP3 via ffmpeg for universal browser support
     const ffmpeg = spawn('ffmpeg', [
@@ -337,32 +362,34 @@ class StationPlayer {
       }
     });
 
-    ffmpeg.stdout.on('end', () => {
-      // ffmpeg exited — try to reconnect
-      if (this.isPlaying) {
-        this._reconnectTimer = setTimeout(() => this._playRemote(), 5000);
-      }
-    });
+    // Use a single cleanup-and-reconnect handler to prevent duplicate timers
+    var didReconnect = false;
+    const scheduleReconnect = () => {
+      if (didReconnect || !this.isPlaying) return;
+      didReconnect = true;
+      this._reconnectTimer = setTimeout(() => {
+        this._reconnecting = false;
+        this._playRemote();
+      }, 5000);
+    };
 
-    ffmpeg.on('error', () => {
-      if (this.isPlaying) {
-        this._reconnectTimer = setTimeout(() => this._playRemote(), 5000);
-      }
-    });
-
+    ffmpeg.stdout.on('end', () => { scheduleReconnect(); });
+    ffmpeg.on('error', () => { scheduleReconnect(); });
     ffmpeg.on('close', (code) => {
       this._remoteReq = null;
-      if (this.isPlaying && code !== 0) {
-        this._reconnectTimer = setTimeout(() => this._playRemote(), 5000);
-      }
+      scheduleReconnect();
     });
 
-    // Collect stderr for diagnostics
-    let stderr = '';
-    ffmpeg.stderr.on('data', (d) => { stderr += d.toString(); });
+    // Collect only trailing stderr for diagnostics — do NOT accumulate unbounded
+    var stderrTail = '';
+    ffmpeg.stderr.on('data', (d) => {
+      stderrTail += d.toString();
+      // Keep only last 2KB of stderr to prevent memory leak
+      if (stderrTail.length > 2048) stderrTail = stderrTail.slice(-2048);
+    });
     ffmpeg.stderr.on('end', () => {
-      if (stderr.includes('Error') || stderr.includes('error')) {
-        console.error('[player] ffmpeg error for remote stream:', stderr.slice(-300));
+      if (stderrTail.includes('Error') || stderrTail.includes('error')) {
+        console.error('[player] ffmpeg error for remote stream:', stderrTail.slice(-300));
       }
     });
   }

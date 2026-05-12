@@ -48,4 +48,6 @@ ENTRYPOINT ["/usr/bin/tini", "--"]
 
 USER radio
 
-CMD ["node", "server.js"]
+# --max-old-space-size=768 limits V8 heap to 768MB (75% of typical 1GB container)
+# --max-semi-space-size=32 doubles young generation for short-lived audio chunks
+CMD ["node", "--max-old-space-size=768", "--max-semi-space-size=32", "server.js"]
