@@ -54,6 +54,7 @@ function onPlayerEvent(stationId, event, detail) {
   }
   // Clean up players Map on stop (idle timeout or manual stop)
   if (event === 'stopped') {
+    db.updateStationOnline.run(0, stationId);
     players.delete(stationId);
   }
 }

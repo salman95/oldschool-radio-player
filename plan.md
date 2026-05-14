@@ -1,237 +1,145 @@
-# Implementation Plan — Dockerize RadioApp
+# Implementation Plan — Station Auto-Offline Bug Fix
 
 ## Goal
-Containerize the Node.js radio streaming app for one-command local deployment with persistent DB, mounted audio dirs, and full ffmpeg/edge-tts support.
+Stations stay online until admin manually stops them. Idle timeout must not kill station players. DB and in-memory Map must stay synchronized.
+
+## Root Cause Trace
+
+```
+Listener switches stations
+  → old station's res.on('close') fires
+    → player._listeners.delete(listener)
+      → player._checkIdle()
+        → 2-min idle timer starts
+          → timer fires → player.stop()
+            → onPlayerEvent('stopped') → players.delete(stationId)  ← Map entry gone
+            → BUT db.updateStationOnline.run(0, stationId) NEVER CALLED  ← DB still online=1
+```
+
+Next listener connects → `serveRadioStream` does `players.get(stationId)` → `null` → 409 "Station is not broadcasting" → station appears offline even though DB says online.
+
+Secondary issue: `resetAllOffline()` wipes all stations on server restart (acceptable per existing design of manual restart, but worth documenting).
 
 ---
 
-## Files to Create
+## Tasks
 
-| File | Purpose |
-|------|---------|
-| `Dockerfile` | Multi-stage build: Node 20 + system deps + non-root user |
-| `docker-compose.yml` | Single-service orchestration with volumes, env vars, healthcheck |
-| `.dockerignore` | Exclude node_modules, .git, radio.db*, logs |
-| `.env.example` | Document all env vars (PORT, TZ, etc.) |
-| `DOCKER.md` | Deployment instructions for end users |
+### 1. Remove idle timeout from StationPlayer
+- **File**: `player.js`
+- **Changes**:
+  - Remove `_idleTimer` from constructor (line ~60: `this._idleTimer = null;`)
+  - Remove `_checkIdle()` method entirely (lines ~304-312)
+  - Remove `_idleTimer` clearing in `_cleanup()` (line ~118: `if (this._idleTimer) { clearTimeout(this._idleTimer); this._idleTimer = null; }`)
+  - Remove idle-timer reset in `addListener()` (lines ~139-140: `if (this._idleTimer) { clearTimeout(this._idleTimer); this._idleTimer = null; }`)
+  - Remove `removeListener` call from `res.on('close')` handler — keep only the `_listeners.delete(listener)` call (line ~152: remove `this._checkIdle()` call)
+- **Acceptance**: No references to `_idleTimer` or `_checkIdle` remain in player.js. `grep -n "_idleTimer\|_checkIdle" player.js` returns empty.
+
+### 2. Make `onPlayerEvent('stopped')` write-through to DB
+- **File**: `server.js`
+- **Changes**: In `onPlayerEvent` function (line ~49-54), add DB update before Map deletion:
+  ```js
+  function onPlayerEvent(stationId, event, detail) {
+    if (event === 'started' || event === 'stopped' || event === 'error') {
+      console.log(`[player] station=${stationId} event=${event} detail=${detail}`);
+    }
+    if (event === 'stopped') {
+      db.updateStationOnline.run(0, stationId);  // ADD: sync DB
+      players.delete(stationId);
+    }
+  }
+  ```
+- **Acceptance**: When admin clicks "Stop" in UI, DB `online` column for that station becomes 0 AND player is removed from Map. Both paths (idle timeout and manual stop) are now safe.
+
+### 3. Remove `checkIdle()` call from `removeListener()`
+- **File**: `player.js`
+- **Changes**: The `removeListener()` method at line ~156 currently calls `_checkIdle()` — not directly visible in code but the close handler calls it. Confirm: the `res.on('close')` handler in `addListener()` is the only place `_checkIdle()` is called. After removing `_checkIdle()`, the close handler only needs `this._listeners.delete(listener)`.
+- **Acceptance**: `res.on('close')` handler in `addListener()` contains only `this._listeners.delete(listener)` — no `_checkIdle()` call.
+
+### 4. Validate station listing endpoint consistency
+- **File**: `server.js`
+- **Changes**: No code change needed. The `/api/stations` GET handler (line ~233) already computes `is_playing` from `players.get(s.id)`. After fixes:
+  - `players.get(s.id)` will always have the player if `online=1` (since idle timeout no longer deletes it).
+  - DB `online` flag and Map presence stay synchronized.
+- **Acceptance**: After admin starts 4 stations and listener switches between them rapidly, all 4 stations still show as playing in the UI after 5+ minutes.
+
+### 5. Remove stale `stopPlayer` worker (dead code check)
+- **File**: `server.js`
+- **Changes**: Inspect `stopPlayer()` function (line ~65-69). It calls `player.stop()` and comments that `players.delete` is handled by `onPlayerEvent`. With the DB write-through fix in Task 2, this is now correct. No changes needed.
+- **Acceptance**: Manual stop via admin API still works — station disappears from UI, DB online=0.
+
+---
 
 ## Files to Modify
 
-| File | Change |
-|------|--------|
-| `README.md` | Add Docker quick-start section linking to DOCKER.md |
-| `.gitignore` | Add `.env` (prevent leaking keys) |
+| File | What changes |
+|------|-------------|
+| `player.js` | Remove `_idleTimer` field, `_checkIdle()` method, all references to both. Remove `_checkIdle()` call from `addListener()` close handler. Remove idleTimer cleanup in `_cleanup()`. |
+| `server.js` | Add `db.updateStationOnline.run(0, stationId)` inside `onPlayerEvent` before `players.delete(stationId)`. |
 
 ---
 
-## Task Breakdown
-
-### 1. Create `.dockerignore`
-- **File**: `.dockerignore`
-- **Content**: Exclude `node_modules`, `.git`, `radio.db`, `radio.db-shm`, `radio.db-wal`, `*.log`, `.env`, `public/news/*.mp3`, `Dockerfile`, `docker-compose.yml`
-- **Acceptance**: Verify `docker build` context size is small (~few MB, not hundreds)
-
-### 2. Create `Dockerfile`
-- **File**: `Dockerfile`
-- **Stages**: Single-stage with layering optimization (multi-stage not needed — runtime deps = build deps due to better-sqlite3 + edge-tts)
-- **Base image**: `node:20-slim` (smaller than full, has build tools via apt)
-- **System deps**:
-  ```dockerfile
-  RUN apt-get update && apt-get install -y --no-install-recommends \
-      ffmpeg \
-      python3 \
-      python3-pip \
-      build-essential \
-      && rm -rf /var/lib/apt/lists/*
-  ```
-- **Python deps**: `pip3 install --break-system-packages edge-tts`
-- **App setup**:
-  ```dockerfile
-  WORKDIR /app
-  COPY package*.json ./
-  RUN npm ci --omit=dev
-  COPY . .
-  ```
-- **Non-root user**:
-  ```dockerfile
-  RUN useradd --no-create-home --shell /bin/bash radio && \
-      mkdir -p /app/data /app/music && \
-      chown -R radio:radio /app
-  USER radio
-  ```
-- **Env**: `ENV PORT=6767 NODE_ENV=production`
-- **Port**: `EXPOSE 6767`
-- **Entry**: `CMD ["node", "server.js"]`
-- **Notes**: 
-  - `better-sqlite3` will compile during `npm ci` — needs python3 + build-essential present
-  - DB path in `db.js` is `path.join(__dirname, 'radio.db')` which means DB lives in `/app/radio.db`. Need to point this to `/app/data/radio.db` for volume mount — but DON'T modify code. Instead, let docker-compose bind-mount the whole `/app/data` and symlink or... actually, simpler: modify db.js to respect `DB_PATH` env var, or just volume-mount the file directly.
-  - **Decision needed**: Simplest path that doesn't change app code: volume-mount `./data:/app/data` and modify `db.js` to use `DB_PATH` env var with fallback. OR just mount the db file directly: `./data/radio.db:/app/radio.db`. The latter is cleaner — no code changes. But WAL mode creates `-shm` and `-wal` files. Those need mounting too. Volumes support this: mount the whole data dir.
-  - **Actually**: Let's add a small env-var patch to db.js — `process.env.DB_PATH || path.join(__dirname, 'radio.db')` — so users can point DB anywhere. Default stays working for non-Docker use.
-
-### 3. Patch `db.js` for configurable DB path
-- **File**: `db.js`
-- **Change**: Line 4: `const DB_PATH = process.env.DB_PATH || path.join(__dirname, 'radio.db');`
-- **Acceptance**: `DB_PATH=/tmp/test.db node -e "require('./db')"` creates DB at that path
-
-### 4. Create `.env.example`
-- **File**: `.env.example`
-- **Content**:
-  ```
-  # RadioApp Docker Configuration
-  PORT=6767
-  DB_PATH=/app/data/radio.db
-  TZ=UTC
-  ```
-- **Acceptance**: File readable, documents all vars
-
-### 5. Create `docker-compose.yml`
-- **File**: `docker-compose.yml`
-- **Content**:
-  ```yaml
-  version: '3.8'
-  services:
-    radio:
-      build: .
-      container_name: radio-app
-      ports:
-        - "${PORT:-6767}:6767"
-      environment:
-        - PORT=${PORT:-6767}
-        - DB_PATH=/app/data/radio.db
-        - TZ=${TZ:-UTC}
-      volumes:
-        - ./data:/app/data           # DB persistence
-        - ./music:/app/music:ro      # Mount music dirs (read-only)
-        - ./public/news:/app/public/news  # News audio persistence
-      restart: unless-stopped
-      healthcheck:
-        test: ["CMD", "node", "-e", "require('http').get('http://localhost:6767/',r=>{process.exit(r.statusCode===200?0:1)})"]
-        interval: 30s
-        timeout: 5s
-        retries: 3
-        start_period: 10s
-  ```
-- **Acceptance**: `docker compose up` starts the app, `docker compose down` stops it cleanly
-
-### 6. Create `DOCKER.md`
-- **File**: `DOCKER.md`
-- **Content**: 
-  - Prerequisites: Docker + Docker Compose installed
-  - Quick start: `docker compose up -d`
-  - Access: `http://localhost:6767`
-  - Default login: `admin/admin123`
-  - Adding music: Create dirs under `./music/`, add station with path `/app/music/your-dir`
-  - Remote streams: Add station with stream URL directly (no dir needed)
-  - AI News: Set DeepSeek API key in web UI
-  - Stopping: `docker compose down`
-  - Data: DB stored in `./data/`, news audio in `./public/news/`
-  - Building from source: `docker compose build`
-  - Troubleshooting: Check logs `docker compose logs radio`
-- **Acceptance**: New user can follow steps and deploy successfully
-
-### 7. Update `.gitignore`
-- **File**: `.gitignore`
-- **Add**: `.env` line
-- **Acceptance**: `.env` not tracked by git
-
-### 8. Update `README.md`
-- **File**: `README.md`
-- **Change**: Add Docker quick-start section after "Setup" heading, before "Prerequisites":
-  ```markdown
-  ## Docker (Recommended)
-  
-  The easiest way to run RadioApp. See [DOCKER.md](DOCKER.md) for full details.
-  
-  ```bash
-  git clone <repo-url> radio-app
-  cd radio-app
-  docker compose up -d
-  ```
-  
-  Then visit `http://localhost:6767` — default login: `admin` / `admin123`.
-  ```
-- **Acceptance**: Readme shows Docker as first option
+## New Files
+None.
 
 ---
 
-## Dependency Order
+## Dependencies
 
 ```
-1. .dockerignore        (no deps)
-2. Patch db.js          (no deps)
-3. .env.example         (no deps)
-4. Dockerfile           (depends on .dockerignore)
-5. docker-compose.yml   (depends on Dockerfile)
-6. DOCKER.md            (depends on docker-compose.yml)
-7. .gitignore update    (no deps)
-8. README.md update     (depends on DOCKER.md)
+Task 1 (remove idle timeout) → Task 3 (clean up removeListener)
+Task 2 (DB write-through) is independent of Tasks 1/3 — can run in parallel
+Task 4 (validation) depends on Tasks 1-3
+Task 5 (dead code check) — informational only, no code changes
 ```
 
----
-
-## Risks & Considerations
-
-### Risk 1: Native module compilation
-`better-sqlite3` compiles C++ code during `npm install`. Need `build-essential`, `python3` in Docker image. Test that `npm ci` succeeds inside container. **Mitigation**: Use `node:20-slim` + apt install build-essential. The slim image includes everything needed.
-
-### Risk 2: edge-tts availability
-`edge-tts` is a Python package. If Microsoft changes their Edge TTS API, this breaks. No mitigation — it's already a runtime dependency in bare-metal setup. Docker just inherits this risk.
-
-### Risk 3: DB path on first run
-First run creates `radio.db` at `DB_PATH`. If volume is mounted but DB doesn't exist, `better-sqlite3` creates it — then seeds default admin. This works fine.
-
-### Risk 4: WAL mode files
-SQLite WAL creates `.db-shm` and `.db-wal` files. Mounting a directory volume rather than a single file avoids issues with these sidecar files.
-
-### Risk 5: Port conflicts
-Default port 6767 may be in use. Docker Compose `.env` overrides let user change via `PORT=9999 docker compose up`. The `server.js` reads `process.env.PORT` (currently hardcoded to 6767) — oh wait, it doesn't! It has `const PORT = 6767;`. **Need to patch server.js** to also read `PORT` env var.
-
-### Risk 6: server.js hardcoded port
-- **File**: `server.js`, line 12
-- **Current**: `const PORT = 6767;`
-- **Needed**: `const PORT = process.env.PORT || 6767;`
-- **Action**: Add this patch to the plan
-
-### Risk 7: Audio file permissions
-Mounted music directories need read access for the `radio` user (UID 1000 by default in Docker). Document in DOCKER.md that music files must be world-readable or owned by the same UID.
-
-### Risk 8: Image size
-`node:20-slim` (~250MB) + ffmpeg (~50MB) + python3 + edge-tts (~20MB) = ~400MB image. Acceptable for a self-hosted app. Can optimize later with multi-stage if needed.
-
-### Risk 9: ffmpeg in remote stream path
-`player.js` spawns ffmpeg for remote streams. Need to verify ffmpeg is in PATH inside container — `apt-get install ffmpeg` handles this.
+Execution order: 1 → 3 → 2, then 4 (validation), then 5 (verify).
 
 ---
 
-## Additional Patch: server.js PORT env var
+## Validation Steps
 
-**New Task 3b**: Patch `server.js` line 12: change `const PORT = 6767;` to `const PORT = process.env.PORT || 6767;`
-
----
-
-## Validation Checklist (Post-Build)
-
-- [ ] `docker compose build` succeeds
-- [ ] `docker compose up -d` starts container
-- [ ] `curl http://localhost:6767/` returns HTML
-- [ ] Login with admin/admin123 works
-- [ ] Container runs as non-root (`docker exec radio-app whoami` → `radio`)
-- [ ] DB persists across `docker compose down && docker compose up`
-- [ ] Music files in `./music/` are accessible when station dir = `/app/music/some-folder`
-- [ ] Health check reports healthy (`docker ps` shows healthy)
-- [ ] `docker compose logs` shows no errors
-- [ ] Image size < 600MB
+1. **Start server**: `node server.js`
+2. **Admin login**: curl POST to `/api/login` with admin/admin123
+3. **Start 4 stations**: curl POST to `/api/stations/1/play`, `/api/stations/2/play`, `/api/stations/3/play`, `/api/stations/4/play`
+4. **Check DB**: `sqlite3 radio.db "SELECT id, name, online FROM stations"` — all 4 show `online=1`
+5. **Listener connects to station 1**: `curl http://localhost:6767/stream?station_id=1` — receives audio data
+6. **Listener disconnects** (Ctrl+C curl)
+7. **Wait 3 minutes** (past old 2-min idle threshold)
+8. **Listener reconnects to station 1**: `curl http://localhost:6767/stream?station_id=1` — STILL receives audio (was 409 before fix)
+9. **Check DB again**: all 4 stations still `online=1`
+10. **Admin stops station 1**: curl POST to `/api/stations/1/stop`
+11. **Check DB**: station 1 is `online=0`, others still `online=1`
+12. **Frontend test**: Open browser, login as admin, start stations, switch between them rapidly as listener, refresh page — all stations still online.
 
 ---
 
-## Task Summary (Execution Order)
+## Risks
 
-1. Create `.dockerignore`
-2. Patch `db.js` — `DB_PATH` env var support
-3. Patch `server.js` — `PORT` env var support
-4. Create `.env.example`
-5. Create `Dockerfile`
-6. Create `docker-compose.yml`
-7. Create `DOCKER.md`
-8. Update `.gitignore` — add `.env`
-9. Update `README.md` — Docker section
+### Risk 1: Zombie players running forever
+- **Severity**: LOW
+- **Mitigation**: Stations running with 0 listeners consume ~negligible CPU (disk read every 375ms). For 4 stations, this is ~4-16 MB/sec disk I/O. Memory per player is bounded (~256KB ring buffer + small objects). Manual admin stop always available. If this becomes an issue, add a *configurable* idle timeout (opt-in, off by default) later — not in this fix.
+
+### Risk 2: Server restart still wipes all stations offline
+- **Severity**: LOW (existing behavior, documented)
+- **Mitigation**: `resetAllOffline()` remains unchanged. Admin must manually restart stations after server restart. This is intentional per the comment: "Don't auto-restore stations on boot — the admin will click Play manually." Not part of this bug scope.
+
+### Risk 3: `_cleaned` guard already prevents re-entrant cleanup
+- **Severity**: NONE (verified)
+- **Confirmation**: `_cleanup()` has `if (this._cleaned) return; this._cleaned = true;` guard. Safe for any number of `stop()` calls. No code change needed.
+
+### Risk 4: Frontend station list polling interval
+- **Severity**: LOW
+- **Confirmation**: Frontend polls `/api/stations` to refresh station list. After fix, `is_playing` field stays `true` as long as player exists in Map — no more false negatives from idle timeout. No frontend code changes needed.
+
+### Risk 5: Remote stream stations (stream_url) not affected
+- **Severity**: NONE
+- **Confirmation**: Remote stream players also inherit from `StationPlayer` and use the same `_checkIdle()` mechanism. Fix applies equally to local and remote stations. Verified: `_playRemote()` runs inside the same `StationPlayer` instance with the same `_checkIdle()` guard.
+
+---
+
+## What This Fix Does NOT Do
+
+1. **Does NOT auto-restore stations on server restart** — admin must manually click Play after restart (existing design).
+2. **Does NOT add a configurable idle timeout** — stations run forever until admin stops them. This is the user's explicit requirement.
+3. **Does NOT change frontend code** — the `/api/stations` response format stays identical. `is_playing` field still derived from Map presence, which is now accurate.
+4. **Does NOT change the player Map lifecycle** — players are created in `play` endpoint, destroyed in `stop` endpoint via `onPlayerEvent`. Same flow, now with DB sync.

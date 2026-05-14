@@ -46,9 +46,6 @@ class StationPlayer {
     // Listeners
     this._listeners = new Set();
 
-    // Idle timeout: stop if no listeners for 2 minutes
-    this._idleTimer = null;
-
     // Pacing: 16KB every 375ms = 43 KB/s = 344 kbps
     this.CHUNK = 16 * 1024;
     this.INTERVAL = 375;
@@ -109,7 +106,6 @@ class StationPlayer {
     this._ffmpegQueue = [];
     this._ffmpegDraining = false;
     if (this._timer) { clearTimeout(this._timer); this._timer = null; }
-    if (this._idleTimer) { clearTimeout(this._idleTimer); this._idleTimer = null; }
 
     if (this._reconnectTimer) { clearTimeout(this._reconnectTimer); this._reconnectTimer = null; }
     if (this._remoteReq) { this._remoteReq.destroy(); this._remoteReq = null; }
@@ -136,9 +132,6 @@ class StationPlayer {
     const listener = { res, draining: false };
     this._listeners.add(listener);
 
-    // Reset idle timeout on new listener
-    if (this._idleTimer) { clearTimeout(this._idleTimer); this._idleTimer = null; }
-
     // Send backlog from remote stream buffer so new listener gets data immediately
     if (this._remoteBuffer && this._remoteBuffer.length > 0) {
       for (var i = 0; i < this._remoteBuffer.length; i++) {
@@ -148,7 +141,6 @@ class StationPlayer {
 
     res.on('close', () => {
       this._listeners.delete(listener);
-      this._checkIdle();
     });
 
     return listener;
@@ -392,18 +384,6 @@ class StationPlayer {
         console.error('[player] ffmpeg error for remote stream:', stderrTail.slice(-300));
       }
     });
-  }
-
-  // ---- Idle Timeout ----
-  _checkIdle() {
-    if (this._listeners.size > 0) return;
-    if (this._idleTimer) clearTimeout(this._idleTimer);
-    this._idleTimer = setTimeout(() => {
-      if (this._listeners.size === 0 && this.isPlaying) {
-        console.log('[player] Auto-stopped ' + this.stationName + ' (idle 2min)');
-        this.stop();
-      }
-    }, 120000);
   }
 
   getStatus() {
