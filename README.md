@@ -40,7 +40,16 @@ mkdir -p music/jazz music/rock music/classical
 # Copy your audio files into those directories
 ```
 
-In the app UI, add a station with **Stream Directory** set to `/app/music/jazz/`.
+### Creating a Station
+
+1. Click **Add Station** in the admin panel
+2. Enter a station name
+3. **Stream Directory** — pick a genre folder from the dropdown (e.g. `jazz`, `rock`)
+4. **Sub-folder** (optional) — if the genre folder contains sub-folders (e.g. albums), pick one to narrow the station to that sub-folder. Leave blank to use the entire genre folder.
+5. **Stream URL** (optional) — for remote streams (Icecast, SHOUTcast, etc.)
+6. Click **OK**
+
+The directory dropdown is populated automatically from the `music/` volume, so you never need to type a path manually.
 
 ### Changing the Port
 
@@ -59,6 +68,7 @@ docker compose down -v       # stop, remove all data
 - **WinAmp-style mini player** — Scrolling track marquee, green-on-black display, animated visualizer
 - **Role-based access** — Admin can start/stop stations; listeners can only tune in/disconnect
 - **Multi-station support** — Run multiple stations with different music directories
+- **Interactive directory browser** — Pick music folders and sub-folders via dropdown menus instead of typing paths
 - **Track shuffle** — Random playback order, re-shuffled after all tracks have played
 - **FLAC/OGG/WAV transcoding** — Automatically converts to MP3 via ffmpeg for browser compatibility
 - **AI News Roundup** — Optional AI-generated news segments inserted between songs (powered by DeepSeek + edge-tts)
@@ -131,6 +141,8 @@ systemctl start radio-app
 | Endpoint | Method | Description |
 |----------|--------|-------------|
 | `/api/login` | POST | Authenticate and get session cookie |
+| `/api/music-dirs` | GET | List top-level music folders (admin) |
+| `/api/subdirs/:path` | GET | List sub-folders of a given path (admin) |
 | `/api/stations` | GET | List all stations |
 | `/api/stations/:id/play` | POST | Start broadcasting (admin) |
 | `/api/stations/:id/stop` | POST | Stop broadcasting (admin) |

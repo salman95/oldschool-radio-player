@@ -10,6 +10,7 @@ const aiNews = require('./ai-news');
 const PORT = process.env.PORT || 6767;
 const HOST = '0.0.0.0';
 const PUBLIC_DIR = path.join(__dirname, 'public');
+const MUSIC_ROOT = process.env.MUSIC_DIR || path.join(__dirname, 'music');
 
 /* ---------- In-Memory Sessions ---------- */
 const sessions = new Map();
@@ -219,6 +220,74 @@ async function handleApi(req, res) {
     const session = requireAuth(req, res);
     if (!session) return;
     jsonResponse(res, 200, { user: { id: session.userId, username: session.username, role: session.role } });
+    return;
+  }
+
+  // --- List music directories ---
+  if (pathname === '/api/music-dirs' && req.method === 'GET') {
+    const session = requireAuth(req, res);
+    if (!session) return;
+    if (!requireAdmin(session)) {
+      jsonResponse(res, 403, { error: 'Admin only' });
+      return;
+    }
+
+    let dirs = [];
+    try {
+      const entries = fs.readdirSync(MUSIC_ROOT, { withFileTypes: true });
+      for (const entry of entries) {
+        if (entry.isDirectory() && !entry.name.startsWith('.')) {
+          dirs.push({
+            name: entry.name,
+            path: path.join(MUSIC_ROOT, entry.name),
+          });
+        }
+      }
+      dirs.sort((a, b) => a.name.localeCompare(b.name));
+    } catch (err) {
+      jsonResponse(res, 500, { error: 'Cannot read music directory: ' + err.message });
+      return;
+    }
+
+    jsonResponse(res, 200, { music_root: MUSIC_ROOT, directories: dirs });
+    return;
+  }
+
+  // --- List subdirectories of a given path ---
+  const subdirsMatch = pathname.match(/^\/api\/subdirs\/(.+)$/);
+  if (subdirsMatch && req.method === 'GET') {
+    const session = requireAuth(req, res);
+    if (!session) return;
+    if (!requireAdmin(session)) {
+      jsonResponse(res, 403, { error: 'Admin only' });
+      return;
+    }
+
+    const dirPath = decodeURIComponent(subdirsMatch[1]);
+    let subdirs = [];
+    try {
+      const resolved = path.resolve(dirPath);
+      // Safety: must be under MUSIC_ROOT
+      if (!resolved.startsWith(MUSIC_ROOT)) {
+        jsonResponse(res, 403, { error: 'Access denied' });
+        return;
+      }
+      const entries = fs.readdirSync(resolved, { withFileTypes: true });
+      for (const entry of entries) {
+        if (entry.isDirectory() && !entry.name.startsWith('.')) {
+          subdirs.push({
+            name: entry.name,
+            path: path.join(resolved, entry.name),
+          });
+        }
+      }
+      subdirs.sort((a, b) => a.name.localeCompare(b.name));
+    } catch (err) {
+      jsonResponse(res, 500, { error: 'Cannot read directory: ' + err.message });
+      return;
+    }
+
+    jsonResponse(res, 200, { parent: dirPath, subdirectories: subdirs });
     return;
   }
 
