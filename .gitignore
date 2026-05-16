@@ -6,3 +6,7 @@ public/news/segment.mp3
 starter_prompt.txt
 *.log
 .env
+
+# Ignore all .md files except README.md
+*.md
+!README.md
