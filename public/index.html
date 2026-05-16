@@ -322,7 +322,15 @@
           </div>
           <div class="form-group">
             <label for="station-dir">Stream Directory:</label>
-            <input type="text" id="station-dir" placeholder="e.g. /music/jazz/">
+            <select id="station-dir">
+              <option value="">— select genre folder —</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="station-subdir">Sub-folder (optional):</label>
+            <select id="station-subdir">
+              <option value="">— (use entire folder above) —</option>
+            </select>
           </div>
           <div class="form-group">
             <label for="station-url">Stream URL:</label>

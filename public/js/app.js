@@ -520,20 +520,53 @@
 
   // ===================== Add Station =====================
   var addStationDialog = $('#add-station-dialog');
-  $('#btn-add-station').addEventListener('click', function () {
+  $('#btn-add-station').addEventListener('click', async function () {
     addStationDialog.classList.add('active');
     $('#station-name').focus();
+    // Load top-level music directories
+    var result = await api('/music-dirs');
+    if (!result.ok) {
+      setStatus('Warning: could not load music folders');
+      return;
+    }
+    var select = $('#station-dir');
+    select.innerHTML = '<option value="">— select genre folder —</option>';
+    result.directories.forEach(function (d) {
+      var opt = document.createElement('option');
+      opt.value = d.path;
+      opt.textContent = d.name;
+      select.appendChild(opt);
+    });
+    // Reset sub-folder dropdown
+    $('#station-subdir').innerHTML = '<option value="">— (use entire folder above) —</option>';
+  });
+
+  // Load subdirectories when genre folder changes
+  $('#station-dir').addEventListener('change', async function () {
+    var parentPath = this.value;
+    var subSelect = $('#station-subdir');
+    subSelect.innerHTML = '<option value="">— (use entire folder above) —</option>';
+    if (!parentPath) return;
+
+    var result = await api('/subdirs/' + encodeURIComponent(parentPath));
+    if (!result.ok) return;
+    result.subdirectories.forEach(function (d) {
+      var opt = document.createElement('option');
+      opt.value = d.path;
+      opt.textContent = d.name;
+      subSelect.appendChild(opt);
+    });
   });
 
   $('#add-station-form').addEventListener('submit', async function (e) {
     e.preventDefault();
     var name = $('#station-name').value.trim();
-    var dir = $('#station-dir').value.trim();
+    var dir = $('#station-subdir').value || $('#station-dir').value; // sub-folder or genre folder
     var url = $('#station-url').value.trim();
     var errorMsg = $('#add-station-error');
     var infoMsg = $('#add-station-info');
     var submitBtn = $('#add-station-submit');
-    if (!name || (!dir && !url)) { setStatus('Enter a directory or stream URL'); return; }
+    if (!name || (!dir && !url)) { setStatus('Select a music folder or enter a stream URL'); return; }
 
     submitBtn.disabled = true;
     submitBtn.textContent = 'Adding...';

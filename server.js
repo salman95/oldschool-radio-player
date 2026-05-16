@@ -10,9 +10,21 @@ const aiNews = require('./ai-news');
 const PORT = process.env.PORT || 6767;
 const HOST = '0.0.0.0';
 const PUBLIC_DIR = path.join(__dirname, 'public');
+const MUSIC_ROOT = process.env.MUSIC_DIR || path.join(__dirname, 'music');
 
 /* ---------- In-Memory Sessions ---------- */
 const sessions = new Map();
+const SESSION_TTL = 24 * 60 * 60 * 1000; // 24 hours
+
+// Periodically purge expired sessions to prevent unbounded growth
+setInterval(() => {
+  const now = Date.now();
+  for (const [token, session] of sessions) {
+    if (now - new Date(session.createdAt).getTime() > SESSION_TTL) {
+      sessions.delete(token);
+    }
+  }
+}, 60 * 60 * 1000); // every hour
 
 function createSession(user) {
   const token = crypto.randomBytes(24).toString('hex');
@@ -38,9 +50,13 @@ function destroySession(token) {
 const players = new Map();
 
 function onPlayerEvent(stationId, event, detail) {
-  // Only log important events, not every track change
   if (event === 'started' || event === 'stopped' || event === 'error') {
     console.log(`[player] station=${stationId} event=${event} detail=${detail}`);
+  }
+  // Clean up players Map on stop (idle timeout or manual stop)
+  if (event === 'stopped') {
+    db.updateStationOnline.run(0, stationId);
+    players.delete(stationId);
   }
 }
 
@@ -60,7 +76,7 @@ function stopPlayer(stationId) {
   const player = players.get(stationId);
   if (player) {
     player.stop();
-    players.delete(stationId);
+    // players.delete(stationId) is handled by onPlayerEvent 'stopped'
   }
 }
 
@@ -204,6 +220,74 @@ async function handleApi(req, res) {
     const session = requireAuth(req, res);
     if (!session) return;
     jsonResponse(res, 200, { user: { id: session.userId, username: session.username, role: session.role } });
+    return;
+  }
+
+  // --- List music directories ---
+  if (pathname === '/api/music-dirs' && req.method === 'GET') {
+    const session = requireAuth(req, res);
+    if (!session) return;
+    if (!requireAdmin(session)) {
+      jsonResponse(res, 403, { error: 'Admin only' });
+      return;
+    }
+
+    let dirs = [];
+    try {
+      const entries = fs.readdirSync(MUSIC_ROOT, { withFileTypes: true });
+      for (const entry of entries) {
+        if (entry.isDirectory() && !entry.name.startsWith('.')) {
+          dirs.push({
+            name: entry.name,
+            path: path.join(MUSIC_ROOT, entry.name),
+          });
+        }
+      }
+      dirs.sort((a, b) => a.name.localeCompare(b.name));
+    } catch (err) {
+      jsonResponse(res, 500, { error: 'Cannot read music directory: ' + err.message });
+      return;
+    }
+
+    jsonResponse(res, 200, { music_root: MUSIC_ROOT, directories: dirs });
+    return;
+  }
+
+  // --- List subdirectories of a given path ---
+  const subdirsMatch = pathname.match(/^\/api\/subdirs\/(.+)$/);
+  if (subdirsMatch && req.method === 'GET') {
+    const session = requireAuth(req, res);
+    if (!session) return;
+    if (!requireAdmin(session)) {
+      jsonResponse(res, 403, { error: 'Admin only' });
+      return;
+    }
+
+    const dirPath = decodeURIComponent(subdirsMatch[1]);
+    let subdirs = [];
+    try {
+      const resolved = path.resolve(dirPath);
+      // Safety: must be under MUSIC_ROOT
+      if (!resolved.startsWith(MUSIC_ROOT)) {
+        jsonResponse(res, 403, { error: 'Access denied' });
+        return;
+      }
+      const entries = fs.readdirSync(resolved, { withFileTypes: true });
+      for (const entry of entries) {
+        if (entry.isDirectory() && !entry.name.startsWith('.')) {
+          subdirs.push({
+            name: entry.name,
+            path: path.join(resolved, entry.name),
+          });
+        }
+      }
+      subdirs.sort((a, b) => a.name.localeCompare(b.name));
+    } catch (err) {
+      jsonResponse(res, 500, { error: 'Cannot read directory: ' + err.message });
+      return;
+    }
+
+    jsonResponse(res, 200, { parent: dirPath, subdirectories: subdirs });
     return;
   }
 
@@ -708,3 +792,11 @@ server.listen(PORT, HOST, () => {
   console.log(`Radio app running at http://${HOST}:${PORT}`);
   console.log(`Default admin: admin / admin123`);
 });
+
+/* ---------- Memory Monitoring (diagnostic logging) ---------- */
+// Logs heap usage every 5 minutes to detect leaks in production
+setInterval(() => {
+  const mem = process.memoryUsage();
+  const toMB = (n) => Math.round(n / 1024 / 1024);
+  console.log(`[memory] heap=${toMB(mem.heapUsed)}/${toMB(mem.heapTotal)}MB rss=${toMB(mem.rss)}MB external=${toMB(mem.external)}MB sessions=${sessions.size} players=${players.size}`);
+}, 5 * 60 * 1000);

@@ -15,7 +15,7 @@ services:
       - .env
     volumes:
       - ./data:/app/data
-      - /mnt/copyparty/music_collection:/app/music:ro
+      - ./music:/app/music:ro
       - news-audio:/app/public/news
     restart: unless-stopped
     healthcheck:

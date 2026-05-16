@@ -4,6 +4,14 @@ const path = require('path');
 require('events').EventEmitter.defaultMaxListeners = 50;
 const aiNews = require('./ai-news');
 
+// Detect soxr resampler once at module load: `-h resampler` shows SWResampler options (~5KB)
+// soxr is a resampler engine, not a standalone filter — `-filters` won't show it
+let _ffmpegHasSoxr = false;
+try {
+  const result = require('child_process').execSync('ffmpeg -h resampler 2>&1', { timeout: 3000 }).toString();
+  _ffmpegHasSoxr = result.includes('soxr');
+} catch (e) { /* keep false */ }
+
 /* ---------- Station Player ---------- */
 // Direct file reads via fs.readSync with consistent setTimeout pacing.
 // No stream pipeline — just raw reads at a controlled rate.
@@ -46,9 +54,6 @@ class StationPlayer {
     // Listeners
     this._listeners = new Set();
 
-    // Idle timeout: stop if no listeners for 2 minutes
-    this._idleTimer = null;
-
     // Pacing: 16KB every 375ms = 43 KB/s = 344 kbps
     this.CHUNK = 16 * 1024;
     this.INTERVAL = 375;
@@ -56,6 +61,7 @@ class StationPlayer {
 
   start() {
     if (this.isPlaying) return;
+    this._cleaned = false;
     this.isPlaying = true;
     this.currentTrackIndex = -1;
 
@@ -99,15 +105,21 @@ class StationPlayer {
   }
 
   _cleanup() {
+    // Guard against re-entrant cleanup
+    if (this._cleaned) return;
+    this._cleaned = true;
+
     this._closeFile();
     if (this._ffmpegProcess) { this._ffmpegProcess.kill(); this._ffmpegProcess = null; }
     this._ffmpegQueue = [];
     this._ffmpegDraining = false;
     if (this._timer) { clearTimeout(this._timer); this._timer = null; }
-    if (this._idleTimer) { clearTimeout(this._idleTimer); this._idleTimer = null; }
 
     if (this._reconnectTimer) { clearTimeout(this._reconnectTimer); this._reconnectTimer = null; }
     if (this._remoteReq) { this._remoteReq.destroy(); this._remoteReq = null; }
+    this._reconnecting = false;
+    this._remoteBuffer = [];
+    this._remoteBufferSize = 0;
   }
 
   _closeFile() {
@@ -128,9 +140,6 @@ class StationPlayer {
     const listener = { res, draining: false };
     this._listeners.add(listener);
 
-    // Reset idle timeout on new listener
-    if (this._idleTimer) { clearTimeout(this._idleTimer); this._idleTimer = null; }
-
     // Send backlog from remote stream buffer so new listener gets data immediately
     if (this._remoteBuffer && this._remoteBuffer.length > 0) {
       for (var i = 0; i < this._remoteBuffer.length; i++) {
@@ -140,7 +149,6 @@ class StationPlayer {
 
     res.on('close', () => {
       this._listeners.delete(listener);
-      this._checkIdle();
     });
 
     return listener;
@@ -209,10 +217,44 @@ class StationPlayer {
     this.onEvent(this.stationId, 'track_change', track.display_name);
 
     const ext = path.extname(track.filepath).toLowerCase();
-    if (ext === '.flac' || ext === '.ogg' || ext === '.wma' || ext === '.wav') {
+    if (ext !== '.mp3') {
+      const probe = this._validateAudioFile(track.filepath);
+      if (!probe.valid) {
+        console.error(`[player] Skipping corrupt file: ${path.basename(track.filepath)} (${probe.reason})`);
+        setImmediate(() => this._nextTrack());
+        return;
+      }
+      if (probe.sampleRate > 48000 || probe.sampleRate < 8000) {
+        console.log(`[player] Unusual sample rate ${probe.sampleRate}Hz for ${path.basename(track.filepath)}`);
+      }
+    }
+    if (ext === '.flac' || ext === '.ogg' || ext === '.wma' || ext === '.wav' ||
+        ext === '.m4a' || ext === '.aac' || ext === '.opus' || ext === '.webm') {
       this._startFfmpeg(track.filepath);
     } else {
       this._openFile(track.filepath);
+    }
+  }
+
+  _validateAudioFile(filepath) {
+    try {
+      const out = require('child_process').execSync(
+        `ffprobe -v quiet -print_format json -show_streams "${filepath}"`,
+        { timeout: 5000 }
+      );
+      const info = JSON.parse(out.toString());
+      const stream = info.streams && info.streams[0];
+      if (!stream) return { valid: false, reason: 'no streams' };
+      if (!stream.duration || stream.duration === 'N/A') return { valid: false, reason: 'no duration' };
+      if (stream.codec_type !== 'audio') return { valid: false, reason: 'not audio' };
+      return {
+        valid: true,
+        sampleRate: parseInt(stream.sample_rate) || 44100,
+        channels: stream.channels || 2,
+        codec: stream.codec_name,
+      };
+    } catch (e) {
+      return { valid: false, reason: e.message };
     }
   }
 
@@ -263,13 +305,26 @@ class StationPlayer {
   // ---- FLAC Transcoding ----
 
   _startFfmpeg(filepath) {
-    const ffmpeg = spawn('ffmpeg', [
-      '-i', filepath, '-f', 'mp3', '-b:a', '192k', '-ar', '44100', '-ac', '2', '-'
-    ], { stdio: ['ignore', 'pipe', 'pipe'] });
+    const args = ['-y', '-err_detect', 'ignore_err', '-fflags', '+genpts', '-i', filepath];
+    if (_ffmpegHasSoxr) args.push('-af', 'aresample=resampler=soxr:precision=28:cutoff=0.99');
+    args.push('-c:a', 'libmp3lame', '-q:a', '0', '-ar', '44100', '-ac', '2', '-sample_fmt', 's16',
+              '-map_metadata', '0', '-id3v2_version', '3', '-write_id3v1', '1',
+              '-f', 'mp3', '-');
+    const ffmpeg = spawn('ffmpeg', args, { stdio: ['ignore', 'pipe', 'pipe'] });
 
     this._ffmpegProcess = ffmpeg;
     this._ffmpegQueue = [];
     this._ffmpegDraining = false;
+
+    // Guard against duplicate _nextTrack calls from multiple events
+    var trackAdvanced = false;
+    const advanceTrack = (reason) => {
+      if (trackAdvanced) return;
+      trackAdvanced = true;
+      if (reason) console.error(`[player] ffmpeg ${reason}: ${path.basename(filepath)}`);
+      try { ffmpeg.kill(); } catch (e) { /* ignore */ }
+      setImmediate(() => this._nextTrack());
+    };
 
     ffmpeg.stdout.on('data', (chunk) => {
       // Break into 16KB pieces and queue them
@@ -288,17 +343,27 @@ class StationPlayer {
       }
     });
 
-    ffmpeg.stdout.on('end', () => { ffmpeg.kill(); setImmediate(() => this._nextTrack()); });
-    ffmpeg.on('error', () => { ffmpeg.kill(); setImmediate(() => this._nextTrack()); });
+    ffmpeg.stdout.on('end', () => { advanceTrack('done'); });
+    ffmpeg.on('error', (err) => { advanceTrack('spawn error: ' + err.message); });
     ffmpeg.on('close', (code) => {
-      if (code !== 0 && this._ffmpegQueue.length === 0) setImmediate(() => this._nextTrack());
+      if (code !== 0 && this._ffmpegQueue.length === 0) advanceTrack('exit code ' + code);
     });
 
-    let stderr = '';
-    ffmpeg.stderr.on('data', (d) => { stderr += d.toString(); });
+    // Collect only trailing stderr — bounded to 2KB to prevent memory leak
+    var stderrTail = '';
+    ffmpeg.stderr.on('data', (d) => {
+      stderrTail += d.toString();
+      if (stderrTail.length > 2048) stderrTail = stderrTail.slice(-2048);
+    });
     ffmpeg.stderr.on('end', () => {
-      if (this._ffmpegQueue.length === 0 && stderr.includes('Error')) {
-        console.error(`[player] ffmpeg error for ${path.basename(filepath)}`);
+      if (this._ffmpegQueue.length === 0) {
+        const errLines = stderrTail.split('\n').filter(l => l.trim().length > 0);
+        if (errLines.length > 0) {
+          const lastLine = errLines[errLines.length - 1];
+          if (lastLine.includes('Error') || lastLine.includes('error') || lastLine.includes('invalid')) {
+            console.error(`[player] ffmpeg error for ${path.basename(filepath)}: ${lastLine.slice(0, 200)}`);
+          }
+        }
       }
     });
   }
@@ -309,6 +374,10 @@ class StationPlayer {
 
   _playRemote() {
     if (!this.isPlaying || !this.streamUrl) return;
+
+    // Guard against duplicate reconnect timers firing
+    if (this._reconnecting) return;
+    this._reconnecting = true;
 
     // Transcode remote stream to MP3 via ffmpeg for universal browser support
     const ffmpeg = spawn('ffmpeg', [
@@ -337,46 +406,36 @@ class StationPlayer {
       }
     });
 
-    ffmpeg.stdout.on('end', () => {
-      // ffmpeg exited — try to reconnect
-      if (this.isPlaying) {
-        this._reconnectTimer = setTimeout(() => this._playRemote(), 5000);
-      }
-    });
+    // Use a single cleanup-and-reconnect handler to prevent duplicate timers
+    var didReconnect = false;
+    const scheduleReconnect = () => {
+      if (didReconnect || !this.isPlaying) return;
+      didReconnect = true;
+      this._reconnectTimer = setTimeout(() => {
+        this._reconnecting = false;
+        this._playRemote();
+      }, 5000);
+    };
 
-    ffmpeg.on('error', () => {
-      if (this.isPlaying) {
-        this._reconnectTimer = setTimeout(() => this._playRemote(), 5000);
-      }
-    });
-
+    ffmpeg.stdout.on('end', () => { scheduleReconnect(); });
+    ffmpeg.on('error', () => { scheduleReconnect(); });
     ffmpeg.on('close', (code) => {
       this._remoteReq = null;
-      if (this.isPlaying && code !== 0) {
-        this._reconnectTimer = setTimeout(() => this._playRemote(), 5000);
-      }
+      scheduleReconnect();
     });
 
-    // Collect stderr for diagnostics
-    let stderr = '';
-    ffmpeg.stderr.on('data', (d) => { stderr += d.toString(); });
+    // Collect only trailing stderr for diagnostics — do NOT accumulate unbounded
+    var stderrTail = '';
+    ffmpeg.stderr.on('data', (d) => {
+      stderrTail += d.toString();
+      // Keep only last 2KB of stderr to prevent memory leak
+      if (stderrTail.length > 2048) stderrTail = stderrTail.slice(-2048);
+    });
     ffmpeg.stderr.on('end', () => {
-      if (stderr.includes('Error') || stderr.includes('error')) {
-        console.error('[player] ffmpeg error for remote stream:', stderr.slice(-300));
+      if (stderrTail.includes('Error') || stderrTail.includes('error')) {
+        console.error('[player] ffmpeg error for remote stream:', stderrTail.slice(-300));
       }
     });
-  }
-
-  // ---- Idle Timeout ----
-  _checkIdle() {
-    if (this._listeners.size > 0) return;
-    if (this._idleTimer) clearTimeout(this._idleTimer);
-    this._idleTimer = setTimeout(() => {
-      if (this._listeners.size === 0 && this.isPlaying) {
-        console.log('[player] Auto-stopped ' + this.stationName + ' (idle 2min)');
-        this.stop();
-      }
-    }, 120000);
   }
 
   getStatus() {
