@@ -4,6 +4,14 @@ const path = require('path');
 require('events').EventEmitter.defaultMaxListeners = 50;
 const aiNews = require('./ai-news');
 
+// Detect soxr resampler once at module load: `-h resampler` shows SWResampler options (~5KB)
+// soxr is a resampler engine, not a standalone filter — `-filters` won't show it
+let _ffmpegHasSoxr = false;
+try {
+  const result = require('child_process').execSync('ffmpeg -h resampler 2>&1', { timeout: 3000 }).toString();
+  _ffmpegHasSoxr = result.includes('soxr');
+} catch (e) { /* keep false */ }
+
 /* ---------- Station Player ---------- */
 // Direct file reads via fs.readSync with consistent setTimeout pacing.
 // No stream pipeline — just raw reads at a controlled rate.
@@ -209,10 +217,44 @@ class StationPlayer {
     this.onEvent(this.stationId, 'track_change', track.display_name);
 
     const ext = path.extname(track.filepath).toLowerCase();
-    if (ext === '.flac' || ext === '.ogg' || ext === '.wma' || ext === '.wav') {
+    if (ext !== '.mp3') {
+      const probe = this._validateAudioFile(track.filepath);
+      if (!probe.valid) {
+        console.error(`[player] Skipping corrupt file: ${path.basename(track.filepath)} (${probe.reason})`);
+        setImmediate(() => this._nextTrack());
+        return;
+      }
+      if (probe.sampleRate > 48000 || probe.sampleRate < 8000) {
+        console.log(`[player] Unusual sample rate ${probe.sampleRate}Hz for ${path.basename(track.filepath)}`);
+      }
+    }
+    if (ext === '.flac' || ext === '.ogg' || ext === '.wma' || ext === '.wav' ||
+        ext === '.m4a' || ext === '.aac' || ext === '.opus' || ext === '.webm') {
       this._startFfmpeg(track.filepath);
     } else {
       this._openFile(track.filepath);
+    }
+  }
+
+  _validateAudioFile(filepath) {
+    try {
+      const out = require('child_process').execSync(
+        `ffprobe -v quiet -print_format json -show_streams "${filepath}"`,
+        { timeout: 5000 }
+      );
+      const info = JSON.parse(out.toString());
+      const stream = info.streams && info.streams[0];
+      if (!stream) return { valid: false, reason: 'no streams' };
+      if (!stream.duration || stream.duration === 'N/A') return { valid: false, reason: 'no duration' };
+      if (stream.codec_type !== 'audio') return { valid: false, reason: 'not audio' };
+      return {
+        valid: true,
+        sampleRate: parseInt(stream.sample_rate) || 44100,
+        channels: stream.channels || 2,
+        codec: stream.codec_name,
+      };
+    } catch (e) {
+      return { valid: false, reason: e.message };
     }
   }
 
@@ -263,9 +305,12 @@ class StationPlayer {
   // ---- FLAC Transcoding ----
 
   _startFfmpeg(filepath) {
-    const ffmpeg = spawn('ffmpeg', [
-      '-i', filepath, '-f', 'mp3', '-b:a', '192k', '-ar', '44100', '-ac', '2', '-'
-    ], { stdio: ['ignore', 'pipe', 'pipe'] });
+    const args = ['-y', '-err_detect', 'ignore_err', '-fflags', '+genpts', '-i', filepath];
+    if (_ffmpegHasSoxr) args.push('-af', 'aresample=resampler=soxr:precision=28:cutoff=0.99');
+    args.push('-c:a', 'libmp3lame', '-q:a', '0', '-ar', '44100', '-ac', '2', '-sample_fmt', 's16',
+              '-map_metadata', '0', '-id3v2_version', '3', '-write_id3v1', '1',
+              '-f', 'mp3', '-');
+    const ffmpeg = spawn('ffmpeg', args, { stdio: ['ignore', 'pipe', 'pipe'] });
 
     this._ffmpegProcess = ffmpeg;
     this._ffmpegQueue = [];
@@ -273,10 +318,11 @@ class StationPlayer {
 
     // Guard against duplicate _nextTrack calls from multiple events
     var trackAdvanced = false;
-    const advanceTrack = () => {
+    const advanceTrack = (reason) => {
       if (trackAdvanced) return;
       trackAdvanced = true;
-      ffmpeg.kill();
+      if (reason) console.error(`[player] ffmpeg ${reason}: ${path.basename(filepath)}`);
+      try { ffmpeg.kill(); } catch (e) { /* ignore */ }
       setImmediate(() => this._nextTrack());
     };
 
@@ -297,10 +343,10 @@ class StationPlayer {
       }
     });
 
-    ffmpeg.stdout.on('end', () => { advanceTrack(); });
-    ffmpeg.on('error', () => { advanceTrack(); });
+    ffmpeg.stdout.on('end', () => { advanceTrack('done'); });
+    ffmpeg.on('error', (err) => { advanceTrack('spawn error: ' + err.message); });
     ffmpeg.on('close', (code) => {
-      if (code !== 0 && this._ffmpegQueue.length === 0) advanceTrack();
+      if (code !== 0 && this._ffmpegQueue.length === 0) advanceTrack('exit code ' + code);
     });
 
     // Collect only trailing stderr — bounded to 2KB to prevent memory leak
@@ -310,8 +356,14 @@ class StationPlayer {
       if (stderrTail.length > 2048) stderrTail = stderrTail.slice(-2048);
     });
     ffmpeg.stderr.on('end', () => {
-      if (this._ffmpegQueue.length === 0 && stderrTail.includes('Error')) {
-        console.error(`[player] ffmpeg error for ${path.basename(filepath)}`);
+      if (this._ffmpegQueue.length === 0) {
+        const errLines = stderrTail.split('\n').filter(l => l.trim().length > 0);
+        if (errLines.length > 0) {
+          const lastLine = errLines[errLines.length - 1];
+          if (lastLine.includes('Error') || lastLine.includes('error') || lastLine.includes('invalid')) {
+            console.error(`[player] ffmpeg error for ${path.basename(filepath)}: ${lastLine.slice(0, 200)}`);
+          }
+        }
       }
     });
   }
