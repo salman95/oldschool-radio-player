@@ -32,6 +32,7 @@ function createSession(user) {
     userId: user.id,
     username: user.username,
     role: user.role,
+    theme: user.theme || 'win98-basic',
     createdAt: new Date().toISOString(),
   });
   return token;
@@ -195,7 +196,7 @@ async function handleApi(req, res) {
     logAction(user.id, 'login', '', getClientIp(req));
     res.setHeader('Set-Cookie', `token=${token}; HttpOnly; Path=/; SameSite=Lax`);
     jsonResponse(res, 200, {
-      user: { id: user.id, username: user.username, role: user.role },
+      user: { id: user.id, username: user.username, role: user.role, theme: user.theme || 'win98-basic' },
     });
     return;
   }
@@ -219,7 +220,34 @@ async function handleApi(req, res) {
   if (pathname === '/api/session' && req.method === 'GET') {
     const session = requireAuth(req, res);
     if (!session) return;
-    jsonResponse(res, 200, { user: { id: session.userId, username: session.username, role: session.role } });
+    jsonResponse(res, 200, { user: { id: session.userId, username: session.username, role: session.role, theme: session.theme || 'win98-basic' } });
+    return;
+  }
+
+  // --- User theme preference ---
+  if (pathname === '/api/user/theme' && req.method === 'PATCH') {
+    const session = requireAuth(req, res);
+    if (!session) return;
+
+    const body = await parseBody(req);
+    const validThemes = ['win98-basic', 'win98-enhanced'];
+    if (!body.theme || !validThemes.includes(body.theme)) {
+      jsonResponse(res, 400, { error: 'Invalid theme. Must be win98-basic or win98-enhanced' });
+      return;
+    }
+
+    db.updateUserTheme.run(body.theme, session.userId);
+    // Update in-memory session too
+    const currentSession = sessions.get((req.headers.cookie || '')
+      .split(';')
+      .map((c) => c.trim())
+      .find((c) => c.startsWith('token='))
+      ?.split('=')[1]);
+    if (currentSession) {
+      currentSession.theme = body.theme;
+    }
+    logAction(session.userId, 'theme_changed', body.theme, getClientIp(req));
+    jsonResponse(res, 200, { ok: true, theme: body.theme });
     return;
   }
 

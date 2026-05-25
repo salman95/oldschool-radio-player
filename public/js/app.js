@@ -97,6 +97,7 @@
     loginScreen.classList.remove('active');
     appScreen.classList.add('active');
     applyUserMode();
+    applyTheme();
     loadStations();
     setStatus('Welcome, ' + state.user.username);
   }
@@ -113,6 +114,33 @@
     roleEl.textContent = state.user.role === 'admin' ? 'Administrator' : 'Listener';
     roleEl.className = 'role-tag ' + (state.user.role === 'admin' ? 'admin-tag' : 'listener-tag');
   }
+
+  // ===================== Theme =====================
+  function applyTheme() {
+    if (!state.user) return;
+    var theme = state.user.theme || 'win98-basic';
+    document.documentElement.setAttribute('data-theme', theme);
+    var selector = $('#theme-selector');
+    if (selector) selector.value = theme;
+  }
+
+  $('#theme-selector').addEventListener('change', async function () {
+    var newTheme = this.value;
+    document.documentElement.setAttribute('data-theme', newTheme);
+    var result = await api('/user/theme', {
+      method: 'PATCH',
+      body: JSON.stringify({ theme: newTheme }),
+    });
+    if (result.ok) {
+      state.user.theme = newTheme;
+      setStatus('Theme changed to ' + newTheme);
+    } else {
+      setStatus('Theme change failed');
+      // Revert selector
+      this.value = state.user.theme || 'win98-basic';
+      document.documentElement.setAttribute('data-theme', this.value);
+    }
+  });
 
   // ===================== Logout =====================
   async function logout() {

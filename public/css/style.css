@@ -843,3 +843,422 @@ body.admin-mode .admin-only.menu-item { display: block; }
   width: 16px;
   height: 16px;
 }
+
+/* ============================================================
+   Win98-Enhanced Theme Overrides
+   Authentic Windows 98 look: 4-layer bevels, title bar gradient,
+   proper button press effects, pixel-perfect borders.
+   ============================================================ */
+
+[data-theme="win98-enhanced"] {
+  /* ---------- Enhanced CSS Variables ---------- */
+  --enhanced-bg:        #c0c0c0;
+  --enhanced-dark:      #808080;
+  --enhanced-darker:    #404040;
+  --enhanced-highlight: #ffffff;
+  --enhanced-shadow:    #808080;
+  --enhanced-deep:      #000000;
+  --enhanced-title-start: #0A246A;
+  --enhanced-title-end:   #A6CAF0;
+  --enhanced-desktop:   #008080;
+  --enhanced-focus-blue: #000080;
+}
+
+[data-theme="win98-enhanced"] body {
+  background-color: #008080;
+  background-image: none;
+  -webkit-font-smoothing: none;
+  font-smooth: never;
+  image-rendering: pixelated;
+}
+
+/* ---------- Window: 4-layer raised bevel ---------- */
+[data-theme="win98-enhanced"] .window {
+  background: var(--enhanced-bg);
+  border: none;
+  box-shadow:
+    inset 1px 1px 0 0 #fff,
+    inset -1px -1px 0 0 #404040,
+    inset 2px 2px 0 0 #dfdfdf,
+    inset -2px -2px 0 0 #808080;
+  padding: 2px;
+}
+
+/* ---------- Title Bar: authentic gradient ---------- */
+[data-theme="win98-enhanced"] .title-bar {
+  background: linear-gradient(90deg, var(--enhanced-title-start) 0%, var(--enhanced-title-end) 100%);
+  border: none;
+  padding: 2px 2px 2px 3px;
+  height: 22px;
+}
+
+[data-theme="win98-enhanced"] .title-bar-text {
+  font-size: 0.85rem;
+  letter-spacing: 0;
+  text-shadow: 1px 1px 0 rgba(0,0,0,0.15);
+  padding-left: 2px;
+}
+
+/* ---------- Title Bar Buttons: authentic 3D ---------- */
+[data-theme="win98-enhanced"] .title-bar-btn {
+  background: var(--enhanced-bg);
+  border: none;
+  box-shadow:
+    inset 1px 1px 0 0 #fff,
+    inset -1px -1px 0 0 #404040,
+    inset 2px 2px 0 0 #dfdfdf,
+    inset -2px -2px 0 0 #808080;
+  width: 16px;
+  height: 14px;
+  font-size: 0.65rem;
+  line-height: 1;
+  color: #000;
+  padding: 0;
+  margin-left: 1px;
+}
+
+[data-theme="win98-enhanced"] .title-bar-btn:active {
+  box-shadow:
+    inset 1px 1px 0 0 #404040,
+    inset -1px -1px 0 0 #fff,
+    inset 2px 2px 0 0 #808080,
+    inset -2px -2px 0 0 #fff;
+}
+
+/* ---------- Menu Bar: authentic look ---------- */
+[data-theme="win98-enhanced"] .menu-bar {
+  background: var(--enhanced-bg);
+  border-top: 1px solid #dfdfdf;
+  border-bottom: 1px solid #808080;
+  padding: 1px 0;
+}
+
+[data-theme="win98-enhanced"] .menu-item {
+  padding: 2px 8px;
+  font-size: 0.85rem;
+  border: 1px solid transparent;
+}
+
+[data-theme="win98-enhanced"] .menu-item:hover {
+  background: var(--enhanced-focus-blue);
+  color: #fff;
+  border-color: transparent;
+}
+
+[data-theme="win98-enhanced"] .menu-item:active {
+  background: var(--enhanced-focus-blue);
+  color: #fff;
+}
+
+/* ---------- Buttons: 4-layer bevel + press effect ---------- */
+[data-theme="win98-enhanced"] .btn {
+  background: var(--enhanced-bg);
+  border: none;
+  box-shadow:
+    inset 1px 1px 0 0 #fff,
+    inset -1px -1px 0 0 #404040,
+    inset 2px 2px 0 0 #dfdfdf,
+    inset -2px -2px 0 0 #808080;
+  padding: 3px 14px;
+  font-size: 0.85rem;
+  color: #000;
+  min-width: 45px;
+  text-align: center;
+}
+
+[data-theme="win98-enhanced"] .btn:active {
+  box-shadow:
+    inset 1px 1px 0 0 #404040,
+    inset -1px -1px 0 0 #fff,
+    inset 2px 2px 0 0 #808080,
+    inset -2px -2px 0 0 #fff;
+  padding: 4px 13px 2px 15px;
+}
+
+[data-theme="win98-enhanced"] .btn:disabled {
+  color: #808080;
+}
+
+[data-theme="win98-enhanced"] .btn-primary {
+  outline: 1px dotted #000;
+  outline-offset: -4px;
+}
+
+[data-theme="win98-enhanced"] .btn-sm {
+  padding: 1px 6px;
+  font-size: 0.75rem;
+  min-width: 30px;
+}
+
+/* ---------- Sunken Panels: 4-layer inset ---------- */
+[data-theme="win98-enhanced"] .sunken-panel {
+  background: #fff;
+  border: none;
+  box-shadow:
+    inset 1px 1px 0 0 #404040,
+    inset -1px -1px 0 0 #fff,
+    inset 2px 2px 0 0 #808080,
+    inset -2px -2px 0 0 #dfdfdf;
+}
+
+/* ---------- Form Inputs: authentic sunken ---------- */
+[data-theme="win98-enhanced"] .form-group input[type="text"],
+[data-theme="win98-enhanced"] .form-group input[type="password"] {
+  background: #fff;
+  border: none;
+  box-shadow:
+    inset 1px 1px 0 0 #404040,
+    inset -1px -1px 0 0 #fff,
+    inset 2px 2px 0 0 #808080,
+    inset -2px -2px 0 0 #dfdfdf;
+  padding: 3px 4px;
+  font-size: 0.85rem;
+}
+
+[data-theme="win98-enhanced"] .form-group input:focus {
+  border: none;
+  box-shadow:
+    inset 1px 1px 0 0 #404040,
+    inset -1px -1px 0 0 #fff,
+    inset 2px 2px 0 0 #808080,
+    inset -2px -2px 0 0 #dfdfdf;
+  outline: 1px dotted #000;
+  outline-offset: -1px;
+}
+
+/* ---------- Select: enhanced ---------- */
+[data-theme="win98-enhanced"] .win-select {
+  background: #fff;
+  border: none;
+  box-shadow:
+    inset 1px 1px 0 0 #404040,
+    inset -1px -1px 0 0 #fff,
+    inset 2px 2px 0 0 #808080,
+    inset -2px -2px 0 0 #dfdfdf;
+  padding: 2px 4px;
+}
+
+[data-theme="win98-enhanced"] .win-select:focus {
+  outline: 1px dotted #000;
+  outline-offset: -1px;
+}
+
+/* ---------- Theme selector in menu bar ---------- */
+[data-theme="win98-enhanced"] #theme-selector {
+  background: #fff;
+  border: none;
+  box-shadow:
+    inset 1px 1px 0 0 #404040,
+    inset -1px -1px 0 0 #fff,
+    inset 2px 2px 0 0 #808080,
+    inset -2px -2px 0 0 #dfdfdf;
+  font-size: 0.8rem;
+  padding: 1px 4px;
+  margin: 2px 6px 2px 0;
+}
+
+/* ---------- Status Bar: enhanced ---------- */
+[data-theme="win98-enhanced"] .status-bar {
+  background: var(--enhanced-bg);
+  border-top: 1px solid #dfdfdf;
+}
+
+[data-theme="win98-enhanced"] .status-bar span {
+  border: none;
+  box-shadow:
+    inset 1px 1px 0 0 #404040,
+    inset -1px -1px 0 0 #fff,
+    inset 2px 2px 0 0 #808080,
+    inset -2px -2px 0 0 #dfdfdf;
+  padding: 1px 6px;
+  font-size: 0.75rem;
+}
+
+/* ---------- Station Table: enhanced headers ---------- */
+[data-theme="win98-enhanced"] .station-table thead th {
+  background: var(--enhanced-bg);
+  box-shadow:
+    inset -1px -1px 0 0 #fff,
+    inset 1px 1px 0 0 #404040;
+  padding: 3px 8px;
+  font-weight: bold;
+  font-size: 0.8rem;
+  border-right: 1px solid #808080;
+  border-bottom: 1px solid #808080;
+}
+
+[data-theme="win98-enhanced"] .station-table tbody tr.selected {
+  background: var(--enhanced-focus-blue);
+  color: #fff;
+}
+
+/* ---------- Player Panel: enhanced ---------- */
+[data-theme="win98-enhanced"] .player-panel {
+  background: linear-gradient(180deg, #e8e8e8 0%, #c0c0c0 30%, #a8a8a8 100%);
+  border: none;
+  box-shadow:
+    inset 1px 1px 0 0 #fff,
+    inset -1px -1px 0 0 #404040,
+    inset 2px 2px 0 0 #dfdfdf,
+    inset -2px -2px 0 0 #808080;
+  padding: 10px;
+}
+
+/* ---------- Track Display: enhanced ---------- */
+[data-theme="win98-enhanced"] .track-display {
+  background: #000;
+  border: none;
+  box-shadow:
+    inset 1px 1px 0 0 #404040,
+    inset -1px -1px 0 0 #fff,
+    inset 2px 2px 0 0 #808080,
+    inset -2px -2px 0 0 #dfdfdf;
+  padding: 3px 5px;
+}
+
+/* ---------- Visualizer: enhanced ---------- */
+[data-theme="win98-enhanced"] .mini-visualizer {
+  background: #000;
+  border: none;
+  box-shadow:
+    inset 1px 1px 0 0 #404040,
+    inset -1px -1px 0 0 #fff,
+    inset 2px 2px 0 0 #808080,
+    inset -2px -2px 0 0 #dfdfdf;
+}
+
+/* ---------- Volume slider: enhanced ---------- */
+[data-theme="win98-enhanced"] .volume-control input[type="range"] {
+  background: linear-gradient(to right, #008000 0%, #008000 75%, #c0c0c0 75%);
+  border: none;
+  box-shadow:
+    inset 1px 1px 0 0 #404040,
+    inset -1px -1px 0 0 #fff,
+    inset 2px 2px 0 0 #808080,
+    inset -2px -2px 0 0 #dfdfdf;
+  height: 8px;
+}
+
+[data-theme="win98-enhanced"] .volume-control input[type="range"]::-webkit-slider-thumb {
+  background: var(--enhanced-bg);
+  border: none;
+  box-shadow:
+    inset 1px 1px 0 0 #fff,
+    inset -1px -1px 0 0 #404040,
+    inset 2px 2px 0 0 #dfdfdf,
+    inset -2px -2px 0 0 #808080;
+  width: 10px;
+  height: 18px;
+  border-radius: 0;
+}
+
+[data-theme="win98-enhanced"] .volume-control input[type="range"]::-moz-range-thumb {
+  background: var(--enhanced-bg);
+  border: none;
+  box-shadow:
+    inset 1px 1px 0 0 #fff,
+    inset -1px -1px 0 0 #404040,
+    inset 2px 2px 0 0 #dfdfdf,
+    inset -2px -2px 0 0 #808080;
+  width: 10px;
+  height: 18px;
+  border-radius: 0;
+}
+
+/* ---------- Dialog Overlay: enhanced ---------- */
+[data-theme="win98-enhanced"] .dialog-overlay {
+  background: rgba(0, 0, 0, 0.4);
+}
+
+/* ---------- Scrollbar: enhanced ---------- */
+[data-theme="win98-enhanced"] ::-webkit-scrollbar {
+  width: 16px;
+  height: 16px;
+}
+
+[data-theme="win98-enhanced"] ::-webkit-scrollbar-track {
+  background: repeating-linear-gradient(
+    0deg,
+    #c0c0c0 0px,
+    #c0c0c0 1px,
+    #fff 1px,
+    #fff 2px
+  );
+  border: 1px solid #808080;
+}
+
+[data-theme="win98-enhanced"] ::-webkit-scrollbar-thumb {
+  background: var(--enhanced-bg);
+  border: none;
+  box-shadow:
+    inset 1px 1px 0 0 #fff,
+    inset -1px -1px 0 0 #404040,
+    inset 2px 2px 0 0 #dfdfdf,
+    inset -2px -2px 0 0 #808080;
+}
+
+[data-theme="win98-enhanced"] ::-webkit-scrollbar-button {
+  background: var(--enhanced-bg);
+  border: none;
+  box-shadow:
+    inset 1px 1px 0 0 #fff,
+    inset -1px -1px 0 0 #404040,
+    inset 2px 2px 0 0 #dfdfdf,
+    inset -2px -2px 0 0 #808080;
+  width: 16px;
+  height: 16px;
+}
+
+/* ---------- Section headers: enhanced ---------- */
+[data-theme="win98-enhanced"] .section-header h3 {
+  font-size: 0.9rem;
+  font-weight: bold;
+  letter-spacing: 0;
+}
+
+/* ---------- User badge: enhanced ---------- */
+[data-theme="win98-enhanced"] .user-badge {
+  box-shadow:
+    inset 1px 1px 0 0 #404040,
+    inset -1px -1px 0 0 #fff,
+    inset 2px 2px 0 0 #808080,
+    inset -2px -2px 0 0 #dfdfdf;
+  border: none;
+}
+
+/* ---------- Kbd: enhanced ---------- */
+[data-theme="win98-enhanced"] kbd {
+  background: var(--enhanced-bg);
+  border: none;
+  box-shadow:
+    inset 1px 1px 0 0 #404040,
+    inset -1px -1px 0 0 #fff,
+    inset 2px 2px 0 0 #808080,
+    inset -2px -2px 0 0 #dfdfdf;
+  border-radius: 0;
+}
+
+/* ---------- Station badge in player: enhanced ---------- */
+[data-theme="win98-enhanced"] .station-badge {
+  box-shadow:
+    inset 1px 1px 0 0 #404040,
+    inset -1px -1px 0 0 #fff,
+    inset 2px 2px 0 0 #808080,
+    inset -2px -2px 0 0 #dfdfdf;
+}
+
+/* ---------- Responsive: keep enhanced on mobile ---------- */
+@media (max-width: 640px) {
+  [data-theme="win98-enhanced"] .window {
+    box-shadow:
+      inset 1px 1px 0 0 #fff,
+      inset -1px -1px 0 0 #404040,
+      inset 2px 2px 0 0 #dfdfdf,
+      inset -2px -2px 0 0 #808080;
+  }
+
+  [data-theme="win98-enhanced"] .menu-item {
+    padding: 2px 4px;
+    font-size: 0.75rem;
+  }
+}

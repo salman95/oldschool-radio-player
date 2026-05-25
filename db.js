@@ -9,10 +9,6 @@ const db = new Database(DB_PATH);
 db.pragma('journal_mode = WAL');
 db.pragma('foreign_keys = ON');
 
-// Migrations: add columns if upgrading from older schema
-try { db.exec(`ALTER TABLE ai_news ADD COLUMN model TEXT DEFAULT 'deepseek-v4-flash'`); } catch (e) {}
-try { db.exec(`ALTER TABLE stations ADD COLUMN stream_url TEXT DEFAULT ''`); } catch (e) {}
-
 /* ---------- Schema ---------- */
 db.exec(`
   CREATE TABLE IF NOT EXISTS ai_news (
@@ -32,6 +28,7 @@ db.exec(`
     username   TEXT    UNIQUE NOT NULL,
     password   TEXT    NOT NULL,
     role       TEXT    NOT NULL DEFAULT 'listener',
+    theme      TEXT    DEFAULT 'win98-basic',
     created_at TEXT    NOT NULL DEFAULT (datetime('now'))
   );
 
@@ -65,6 +62,11 @@ db.exec(`
     FOREIGN KEY (user_id) REFERENCES users(id)
   );
 `);
+
+/* ---------- Migrations (after schema, for existing DBs) ---------- */
+try { db.exec(`ALTER TABLE ai_news ADD COLUMN model TEXT DEFAULT 'deepseek-v4-flash'`); } catch (e) {}
+try { db.exec(`ALTER TABLE stations ADD COLUMN stream_url TEXT DEFAULT ''`); } catch (e) {}
+try { db.exec("ALTER TABLE users ADD COLUMN theme TEXT DEFAULT 'win98-basic'"); } catch (e) {}
 
 /* ---------- Prepared Statements ---------- */
 
@@ -155,6 +157,11 @@ const getAllLogs = db.prepare(
    LIMIT 200`
 );
 
+// User theme
+const updateUserTheme = db.prepare(
+  `UPDATE users SET theme = ? WHERE id = ?`
+);
+
 /* ---------- Helpers ---------- */
 
 function hashPassword(plain) {
@@ -218,4 +225,6 @@ module.exports = {
   updateAiNewsKey,
   updateAiNewsEnabled,
   updateAiNewsAudio,
+  // user theme
+  updateUserTheme,
 };
