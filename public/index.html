@@ -57,7 +57,7 @@
       <div class="title-bar">
         <div class="title-bar-text">
           <span class="app-icon">&#9835;</span>
-          RadioApp &mdash; Internet Radio Player
+          Old-School Internet Radio Player
         </div>
         <div class="title-bar-controls">
           <button class="title-bar-btn minimize" aria-label="Minimize">&minus;</button>
@@ -74,11 +74,23 @@
         <button class="menu-item admin-only" data-menu="logs">Logs</button>
         <button class="menu-item" data-menu="help">Help</button>
         <span class="menu-spacer"></span>
-        <select id="theme-selector" class="win-select" style="width:auto;padding:2px 4px;font-size:0.8rem;margin-right:6px;">
+        <button class="menu-item" id="menu-logout">Logout</button>
+      </div>
+
+      <!-- Theme Bar (below menu, separated by divider) -->
+      <div class="theme-bar">
+        <span class="theme-bar-label">Theme:</span>
+        <select id="theme-selector" class="win-select">
           <option value="win98-basic">Win98-Basic</option>
           <option value="win98-enhanced">Win98-Enhanced</option>
+          <option value="winxp">WinXP</option>
         </select>
-        <button class="menu-item" id="menu-logout">Logout</button>
+        <span class="theme-bar-sep"></span>
+        <span class="theme-bar-label">Visualizer:</span>
+        <select id="visualizer-selector" class="win-select">
+          <option value="bars">Bars</option>
+          <option value="waveform">Waveform</option>
+        </select>
       </div>
 
       <!-- Main Content Area -->
@@ -214,6 +226,20 @@
               <h3>&#128240; AI News Roundup</h3>
             </div>
             <div class="sunken-panel" style="padding:16px;">
+              <div class="ai-info-box">
+                <p><strong>How AI News works:</strong></p>
+                <ol style="margin:4px 0 0 16px;font-size:0.8rem;color:#555;">
+                  <li>Fetches current AI headlines from Google News RSS</li>
+                  <li>DeepSeek Flash rewrites them into a radio-style script</li>
+                  <li>edge-tts converts the script to speech (MP3)</li>
+                </ol>
+                <p style="margin-top:6px;font-size:0.75rem;color:#888;">
+                  <label style="cursor:pointer;display:inline-flex;align-items:center;gap:4px;">
+                    <input type="checkbox" id="ai-rewrite-toggle" checked>
+                    Use AI to rewrite news (uncheck for basic headline reading)
+                  </label>
+                </p>
+              </div>
               <div class="form-group">
                 <label for="ai-api-key">DeepSeek API Key:</label>
                 <input type="password" id="ai-api-key" placeholder="sk-..." style="width:100%;font-family:monospace;">
@@ -221,17 +247,8 @@
                   Get a key at <a href="https://platform.deepseek.com/" target="_blank" style="color:var(--win-link);">platform.deepseek.com</a>
                 </div>
               </div>
-              <div class="form-group">
-                <label for="ai-model">Model:</label>
-                <select id="ai-model" class="win-select" style="font-family:monospace;">
-                  <option value="deepseek-v4-flash">deepseek-v4-flash (cheapest, $0.14/M input)</option>
-                  <option value="deepseek-chat">deepseek-chat (legacy, same pricing)</option>
-                  <option value="deepseek-v4-pro">deepseek-v4-pro (higher quality, $0.435/M input)</option>
-                  <option value="deepseek-reasoner">deepseek-reasoner (R1, $0.55/M input)</option>
-                </select>
-              </div>
               <div class="form-actions" style="justify-content:flex-start;">
-                <button class="btn" id="btn-save-ai-key">Save Key &amp; Model</button>
+                <button class="btn" id="btn-save-ai-key">Save Key</button>
                 <button class="btn" id="btn-generate-news">&#9654; Generate News</button>
                 <button class="btn" id="btn-toggle-news" disabled>Enable News</button>
               </div>

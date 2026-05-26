@@ -16,6 +16,7 @@ db.exec(`
     api_key    TEXT    DEFAULT '',
     model      TEXT    DEFAULT 'deepseek-v4-flash',
     enabled    INTEGER NOT NULL DEFAULT 0,
+    use_ai     INTEGER NOT NULL DEFAULT 1,
     track_interval INTEGER NOT NULL DEFAULT 10,
     news_text  TEXT    DEFAULT '',
     audio_path TEXT    DEFAULT '',
@@ -65,6 +66,7 @@ db.exec(`
 
 /* ---------- Migrations (after schema, for existing DBs) ---------- */
 try { db.exec(`ALTER TABLE ai_news ADD COLUMN model TEXT DEFAULT 'deepseek-v4-flash'`); } catch (e) {}
+try { db.exec("ALTER TABLE ai_news ADD COLUMN use_ai INTEGER DEFAULT 1"); } catch (e) {}
 try { db.exec(`ALTER TABLE stations ADD COLUMN stream_url TEXT DEFAULT ''`); } catch (e) {}
 try { db.exec("ALTER TABLE users ADD COLUMN theme TEXT DEFAULT 'win98-basic'"); } catch (e) {}
 
@@ -120,12 +122,12 @@ const getTrackCountByStation = db.prepare(
 
 // AI News
 const upsertAiNews = db.prepare(
-  `INSERT INTO ai_news (id, api_key, model, enabled, track_interval, news_text, audio_path, generated_at, updated_at)
-   VALUES (1, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+  `INSERT INTO ai_news (id, api_key, model, enabled, use_ai, track_interval, news_text, audio_path, generated_at, updated_at)
+   VALUES (1, ?, 'deepseek-v4-flash', ?, ?, ?, ?, ?, ?, datetime('now'))
    ON CONFLICT(id) DO UPDATE SET
      api_key = excluded.api_key,
-     model = excluded.model,
      enabled = excluded.enabled,
+     use_ai = excluded.use_ai,
      track_interval = excluded.track_interval,
      news_text = excluded.news_text,
      audio_path = excluded.audio_path,
@@ -136,10 +138,13 @@ const getAiNews = db.prepare(
   `SELECT * FROM ai_news WHERE id = 1`
 );
 const updateAiNewsKey = db.prepare(
-  `UPDATE ai_news SET api_key = ?, model = ?, updated_at = datetime('now') WHERE id = 1`
+  `UPDATE ai_news SET api_key = ?, updated_at = datetime('now') WHERE id = 1`
 );
 const updateAiNewsEnabled = db.prepare(
   `UPDATE ai_news SET enabled = ?, updated_at = datetime('now') WHERE id = 1`
+);
+const updateAiNewsRewrite = db.prepare(
+  `UPDATE ai_news SET use_ai = ?, updated_at = datetime('now') WHERE id = 1`
 );
 const updateAiNewsAudio = db.prepare(
   `UPDATE ai_news SET news_text = ?, audio_path = ?, generated_at = datetime('now'), updated_at = datetime('now') WHERE id = 1`
@@ -224,6 +229,7 @@ module.exports = {
   getAiNews,
   updateAiNewsKey,
   updateAiNewsEnabled,
+  updateAiNewsRewrite,
   updateAiNewsAudio,
   // user theme
   updateUserTheme,

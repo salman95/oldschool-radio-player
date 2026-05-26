@@ -230,9 +230,9 @@ async function handleApi(req, res) {
     if (!session) return;
 
     const body = await parseBody(req);
-    const validThemes = ['win98-basic', 'win98-enhanced'];
+    const validThemes = ['win98-basic', 'win98-enhanced', 'winxp'];
     if (!body.theme || !validThemes.includes(body.theme)) {
-      jsonResponse(res, 400, { error: 'Invalid theme. Must be win98-basic or win98-enhanced' });
+      jsonResponse(res, 400, { error: 'Invalid theme. Must be win98-basic, win98-enhanced, or winxp' });
       return;
     }
 
@@ -645,11 +645,11 @@ async function handleApi(req, res) {
     if (!session) return;
     if (!requireAdmin(session)) { jsonResponse(res, 403, { error: 'Admin only' }); return; }
 
-    const cfg = db.getAiNews.get() || { enabled: 0, track_interval: 10, news_text: '', generated_at: '' };
+    const cfg = db.getAiNews.get() || { enabled: 0, use_ai: 1, track_interval: 10, news_text: '', generated_at: '' };
     jsonResponse(res, 200, {
       has_key: !!cfg.api_key,
-      model: cfg.model || 'deepseek-v4-flash',
       enabled: !!cfg.enabled,
+      use_ai: cfg.use_ai !== undefined ? !!cfg.use_ai : true,
       track_interval: cfg.track_interval || 10,
       has_news: !!cfg.news_text,
       news_text: cfg.news_text || '',
@@ -666,7 +666,7 @@ async function handleApi(req, res) {
     const body = await parseBody(req);
     if (!body.api_key) { jsonResponse(res, 400, { error: 'API key required' }); return; }
 
-    db.upsertAiNews.run(body.api_key, body.model || 'deepseek-v4-flash', 0, 10, '', '', '');
+    db.upsertAiNews.run(body.api_key, 0, 1, 10, '', '', '');
     logAction(session.userId, 'ai_key_saved', '', getClientIp(req));
     jsonResponse(res, 200, { ok: true });
     return;
@@ -697,13 +697,27 @@ async function handleApi(req, res) {
     if (!cfg || !cfg.api_key) { jsonResponse(res, 400, { error: 'Set API key first' }); return; }
 
     try {
-      const result = await aiNews.generateNews(cfg.api_key, cfg.model);
+      const result = await aiNews.generateNews(cfg.api_key, cfg.use_ai !== 0);
       db.updateAiNewsAudio.run(result.text, result.audioPath);
       logAction(session.userId, 'ai_news_generated', '', getClientIp(req));
       jsonResponse(res, 200, { ok: true, text: result.text.slice(0, 100) + '...' });
     } catch (e) {
       jsonResponse(res, 500, { error: e.message });
     }
+    return;
+  }
+
+  // --- AI News: toggle rewrite mode ---
+  if (pathname === '/api/ai-news/rewrite' && req.method === 'POST') {
+    const session = requireAuth(req, res);
+    if (!session) return;
+    if (!requireAdmin(session)) { jsonResponse(res, 403, { error: 'Admin only' }); return; }
+
+    const body = await parseBody(req);
+    const useAi = body.use_ai ? 1 : 0;
+    db.updateAiNewsRewrite.run(useAi);
+    logAction(session.userId, useAi ? 'ai_rewrite_enabled' : 'ai_rewrite_disabled', '', getClientIp(req));
+    jsonResponse(res, 200, { ok: true, use_ai: !!useAi });
     return;
   }
 

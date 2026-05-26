@@ -189,6 +189,37 @@ kbd {
   flex-wrap: wrap;
 }
 
+/* ---------- Theme Bar (below menu, separated by divider) ---------- */
+.theme-bar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  background: var(--win-bg);
+  border-bottom: 1px solid var(--win-shadow);
+  padding: 3px 8px;
+}
+
+.theme-bar-label {
+  font-family: var(--font-main);
+  font-size: 0.8rem;
+  color: var(--win-text);
+}
+
+.theme-bar .win-select {
+  width: auto;
+  padding: 2px 4px;
+  font-size: 0.8rem;
+}
+
+.theme-bar-sep {
+  display: inline-block;
+  width: 1px;
+  height: 16px;
+  background: var(--win-shadow);
+  margin: 0 6px;
+}
+
 .menu-item {
   background: transparent;
   border: none;
@@ -583,6 +614,20 @@ kbd {
   font-size: 1rem;
 }
 
+/* ---------- AI News Info Box ---------- */
+.ai-info-box {
+  background: #FFFBE6;
+  border: 1px solid #D4C88B;
+  border-radius: 4px;
+  padding: 10px 14px;
+  margin-bottom: 14px;
+}
+
+.ai-info-box p {
+  margin: 0;
+  font-size: 0.85rem;
+}
+
 /* ---------- Forms ---------- */
 .form-group {
   margin-bottom: 14px;
@@ -933,6 +978,29 @@ body.admin-mode .admin-only.menu-item { display: block; }
   padding: 1px 0;
 }
 
+/* Theme bar below menu (enhanced) */
+[data-theme="win98-enhanced"] .theme-bar {
+  background: var(--enhanced-bg);
+  border-top: 1px solid #dfdfdf;
+  border-bottom: 1px solid #808080;
+}
+
+[data-theme="win98-enhanced"] .theme-bar .win-select {
+  background: #fff;
+  border: none;
+  box-shadow:
+    inset 1px 1px 0 0 #404040,
+    inset -1px -1px 0 0 #fff,
+    inset 2px 2px 0 0 #808080,
+    inset -2px -2px 0 0 #dfdfdf;
+  font-size: 0.8rem;
+  padding: 2px 4px;
+}
+
+[data-theme="win98-enhanced"] .theme-bar-sep {
+  background: #808080;
+}
+
 [data-theme="win98-enhanced"] .menu-item {
   padding: 2px 8px;
   font-size: 0.85rem;
@@ -1044,7 +1112,8 @@ body.admin-mode .admin-only.menu-item { display: block; }
 }
 
 /* ---------- Theme selector in menu bar ---------- */
-[data-theme="win98-enhanced"] #theme-selector {
+[data-theme="win98-enhanced"] #theme-selector,
+[data-theme="win98-enhanced"] #visualizer-selector {
   background: #fff;
   border: none;
   box-shadow:
@@ -1260,5 +1329,479 @@ body.admin-mode .admin-only.menu-item { display: block; }
   [data-theme="win98-enhanced"] .menu-item {
     padding: 2px 4px;
     font-size: 0.75rem;
+  }
+}
+
+/* ============================================================
+   WinXP Luna Theme Overrides
+   Windows XP Luna blue: rounded corners, blue title bars,
+   green primary buttons, silver window chrome.
+   ============================================================ */
+
+/* ---------- XP CSS Variables ---------- */
+[data-theme="winxp"] {
+  --xp-bg:           #ECE9D8;
+  --xp-bg-dark:      #D6D2BD;
+  --xp-highlight:    #FFFFFF;
+  --xp-shadow:       #7F9DB9;
+  --xp-blue:         #0054E3;
+  --xp-blue-light:   #3D93F2;
+  --xp-blue-dark:    #003C74;
+  --xp-blue-hover:   #316AC5;
+  --xp-green:        #3C8D3C;
+  --xp-green-light:  #71C671;
+  --xp-green-dark:   #2A6E2A;
+  --xp-red:          #CC3333;
+  --xp-red-light:    #F08080;
+  --xp-focus:        #3399FF;
+  --xp-table-header: linear-gradient(180deg, #FFFFFF 0%, #ECE9D8 100%);
+  --xp-font:         "Trebuchet MS", "Lucida Grande", Tahoma, Verdana, sans-serif;
+}
+
+/* ---------- Body: XP font + blue desktop ---------- */
+[data-theme="winxp"] body {
+  font-family: var(--xp-font);
+  background-color: #3A6EA5;
+  background-image: none;
+}
+
+/* ---------- Window: XP rounded border ---------- */
+[data-theme="winxp"] .window {
+  background: var(--xp-bg);
+  border: 2px solid var(--xp-blue);
+  border-radius: 8px 8px 0 0;
+  box-shadow: 2px 2px 8px rgba(0, 0, 0, 0.35);
+  padding: 0;
+}
+
+/* ---------- Title Bar: XP Luna horizontal blue gradient (authentic) ---------- */
+[data-theme="winxp"] .title-bar {
+  background: linear-gradient(to right, #005AE0 0%, #3D8BF5 100%);
+  border: none;
+  border-radius: 8px 8px 0 0;
+  padding: 6px 8px;
+  min-height: 28px;
+  height: auto;
+}
+
+[data-theme="winxp"] .title-bar-text {
+  font-family: "Trebuchet MS", Tahoma, Arial, sans-serif;
+  font-size: 11px;
+  font-weight: bold;
+  color: #fff;
+  text-shadow: 1px 1px 1px rgba(0, 0, 0, 0.5);
+  padding-left: 2px;
+  letter-spacing: 0;
+}
+
+/* ---------- Title Bar Buttons: XP Luna chrome gradient + red close (no ::before — text in HTML) ---------- */
+[data-theme="winxp"] .title-bar-btn {
+  background: linear-gradient(to bottom, #FFFFFF 0%, #ECE9D8 50%, #D5D0C4 51%, #D5CFC2 100%);
+  border: 1px solid #003C9C;
+  border-radius: 3px;
+  box-shadow: inset 0 1px 0 #FFFFFF;
+  width: 21px;
+  height: 21px;
+  font-family: "Trebuchet MS", Tahoma, Arial, sans-serif;
+  font-size: 12px;
+  font-weight: bold;
+  color: #000;
+  padding: 0;
+  margin-left: 2px;
+  line-height: 21px;
+  text-align: center;
+}
+
+[data-theme="winxp"] .title-bar-btn.minimize {
+  font-size: 14px;
+  line-height: 18px;
+  text-indent: 0;
+}
+
+[data-theme="winxp"] .title-bar-btn.maximize {
+  font-size: 10px;
+  line-height: 19px;
+}
+
+[data-theme="winxp"] .title-bar-btn.close {
+  background: linear-gradient(to bottom, #FFFFFF 0%, #E88A80 15%, #E4736A 50%, #D85A4F 51%, #D14C41 100%);
+  border-color: #B33A30;
+  font-size: 13px;
+  line-height: 19px;
+  color: #000;
+}
+
+[data-theme="winxp"] .title-bar-btn:hover {
+  box-shadow: 0 0 0 1px #003C9C, inset 0 0 0 1px #FFFFFF;
+}
+
+[data-theme="winxp"] .title-bar-btn.close:hover {
+  background: linear-gradient(to bottom, #FFFFFF 0%, #F09A91 15%, #ED7C73 50%, #E5655A 51%, #E05549 100%);
+  box-shadow: 0 0 0 1px #B33A30, inset 0 0 0 1px #FFFFFF;
+}
+
+[data-theme="winxp"] .title-bar-btn:active {
+  box-shadow: inset 0 0 0 1px #003C9C;
+  background: linear-gradient(to bottom, #D5CFC2 0%, #ECE9D8 100%);
+}
+
+[data-theme="winxp"] .title-bar-btn.close:active {
+  box-shadow: inset 0 0 0 1px #B33A30;
+  background: linear-gradient(to bottom, #D14C41 0%, #E4736A 100%);
+}
+
+/* ---------- Menu Bar: XP silver gradient ---------- */
+[data-theme="winxp"] .menu-bar {
+  background: linear-gradient(180deg, #F5F4EE 0%, #ECE9D8 100%);
+  border-bottom: 1px solid var(--xp-shadow);
+  padding: 2px 4px;
+}
+
+[data-theme="winxp"] .menu-item {
+  padding: 4px 12px;
+  font-family: "Trebuchet MS", Tahoma, Arial, sans-serif;
+  font-size: 11px;
+  color: #000;
+  border: 1px solid transparent;
+  border-radius: 3px;
+}
+
+[data-theme="winxp"] .menu-item:hover {
+  background: var(--xp-blue-hover);
+  color: #fff;
+}
+
+[data-theme="winxp"] .menu-item:active {
+  background: #2156B0;
+  color: #fff;
+}
+
+/* ---------- Buttons: XP Luna silver 4-stop gradient + blue hover glow (authentic) ---------- */
+[data-theme="winxp"] .btn {
+  background: linear-gradient(to bottom, #FFFFFF 0%, #ECE9D8 50%, #D5D0C4 51%, #D5CFC2 100%);
+  border: 1px solid #003C9C;
+  border-radius: 3px;
+  box-shadow: inset 0 1px 0 #FFFFFF;
+  padding: 4px 18px;
+  font-family: "Trebuchet MS", Tahoma, Arial, sans-serif;
+  font-size: 11px;
+  color: #000;
+  min-width: 75px;
+  min-height: 23px;
+  text-align: center;
+}
+
+[data-theme="winxp"] .btn:hover {
+  border-color: #2C628B;
+  box-shadow: 0 0 0 1px #2C628B, inset 0 1px 0 #FFFFFF;
+  background: linear-gradient(to bottom, #FFFFFF 0%, #F0EDE0 50%, #DAD5C8 51%, #D5CFC2 100%);
+}
+
+[data-theme="winxp"] .btn:active {
+  background: linear-gradient(to bottom, #D5CFC2 0%, #ECE9D8 100%);
+  box-shadow: inset 0 0 0 1px #003C9C;
+  padding: 5px 17px 3px 19px;
+}
+
+[data-theme="winxp"] .btn:disabled {
+  color: #ACA899;
+  border-color: #ACA899;
+  background: linear-gradient(to bottom, #F5F4EE 0%, #ECE9D8 100%);
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+[data-theme="winxp"] .btn-primary {
+  background: linear-gradient(to bottom, #E5F4FC 0%, #C4E5F6 50%, #98D1EF 51%, #68B3DB 100%);
+  border: 1px solid #2C628B;
+  color: #000;
+  text-shadow: none;
+  box-shadow: 0 0 0 1px #2C628B, inset 0 1px 0 #FFFFFF;
+}
+
+[data-theme="winxp"] .btn-primary:hover {
+  background: linear-gradient(to bottom, #F0F8FE 0%, #D0EAF8 50%, #A8D8F2 51%, #78C0E6 100%);
+}
+
+[data-theme="winxp"] .btn-primary:active {
+  background: linear-gradient(to bottom, #68B3DB 0%, #98D1EF 100%);
+  box-shadow: inset 0 0 0 1px #2C628B;
+}
+
+/* ---------- Danger button: XP red ---------- */
+[data-theme="winxp"] .btn-danger {
+  background: linear-gradient(to bottom, #F08080 0%, #CC3333 50%, #B02626 51%, #991F1F 100%);
+  color: #fff;
+  border: 1px solid #990000;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.3);
+}
+
+[data-theme="winxp"] .btn-danger:hover {
+  background: linear-gradient(to bottom, #FF9090 0%, #DD4444 50%, #C03030 51%, #A82828 100%);
+  border-color: #B33A30;
+  box-shadow: 0 0 0 1px #B33A30, inset 0 1px 0 rgba(255,255,255,0.4);
+}
+
+[data-theme="winxp"] .btn-danger:active {
+  background: linear-gradient(to bottom, #991F1F 0%, #CC3333 100%);
+  box-shadow: inset 0 0 0 1px #990000;
+}
+
+/* ---------- Small button ---------- */
+[data-theme="winxp"] .btn-sm {
+  padding: 2px 10px;
+  font-size: 0.75rem;
+  min-width: 60px;
+  min-height: 20px;
+}
+
+/* ---------- Sunken Panels: XP flat style ---------- */
+[data-theme="winxp"] .sunken-panel {
+  background: #fff;
+  border: 1px solid var(--xp-shadow);
+  box-shadow: none;
+}
+
+/* ---------- Form Inputs: XP style ---------- */
+[data-theme="winxp"] .form-group input[type="text"],
+[data-theme="winxp"] .form-group input[type="password"] {
+  background: #fff;
+  border: 1px solid #7F9DB9;
+  box-shadow: none;
+  padding: 4px 6px;
+  font-family: "Trebuchet MS", Tahoma, Arial, sans-serif;
+  font-size: 11px;
+  border-radius: 2px;
+}
+
+[data-theme="winxp"] .form-group input:focus {
+  border-color: var(--xp-focus);
+  outline: 2px solid rgba(51, 153, 255, 0.4);
+  outline-offset: -1px;
+}
+
+/* ---------- Select: XP style ---------- */
+[data-theme="winxp"] .win-select {
+  background: #fff;
+  border: 1px solid var(--xp-shadow);
+  box-shadow: none;
+  padding: 3px 6px;
+  border-radius: 2px;
+}
+
+[data-theme="winxp"] .win-select:focus {
+  border-color: var(--xp-focus);
+  outline: 2px solid rgba(51, 153, 255, 0.4);
+  outline-offset: -1px;
+}
+
+/* ---------- Theme bar below menu (XP) ---------- */
+[data-theme="winxp"] .theme-bar {
+  background: linear-gradient(180deg, #ECE9D8 0%, #D4D0C8 100%);
+  border-top: 1px solid #FFFFFF;
+  border-bottom: 1px solid #ACA899;
+  padding: 3px 8px;
+}
+
+[data-theme="winxp"] .theme-bar-label {
+  font-family: "Trebuchet MS", Tahoma, Arial, sans-serif;
+  font-size: 11px;
+  color: #000;
+}
+
+[data-theme="winxp"] .theme-bar-sep {
+  background: #ACA899;
+}
+
+[data-theme="winxp"] #theme-selector,
+[data-theme="winxp"] #visualizer-selector {
+  background: #fff;
+  border: 1px solid #7F9DB9;
+  box-shadow: none;
+  font-family: "Trebuchet MS", Tahoma, Arial, sans-serif;
+  font-size: 11px;
+  padding: 2px 4px;
+  border-radius: 2px;
+}
+
+/* ---------- Status Bar: XP silver gradient ---------- */
+[data-theme="winxp"] .status-bar {
+  background: linear-gradient(180deg, #F5F4EE 0%, #ECE9D8 100%);
+  border-top: 1px solid #ACA899;
+}
+
+[data-theme="winxp"] .status-bar span {
+  border: none;
+  box-shadow: none;
+  padding: 2px 8px;
+  font-family: "Trebuchet MS", Tahoma, Arial, sans-serif;
+  font-size: 11px;
+}
+
+/* ---------- Station Table: XP listview ---------- */
+[data-theme="winxp"] .station-table thead th {
+  background: linear-gradient(180deg, #FFFFFF 0%, #ECE9D8 8%, #DED5BC 92%, #D4C8AB 100%);
+  box-shadow: none;
+  padding: 5px 10px;
+  font-weight: bold;
+  font-size: 11px;
+  border-right: 1px solid #D4D0C8;
+  border-bottom: 1px solid #ACA899;
+}
+
+[data-theme="winxp"] .station-table tbody tr:hover {
+  background: #E8F0FE;
+}
+
+[data-theme="winxp"] .station-table tbody tr.selected {
+  background: var(--xp-blue-hover);
+  color: #fff;
+}
+
+/* ---------- Player Panel: XP light gradient ---------- */
+[data-theme="winxp"] .player-panel {
+  background: linear-gradient(180deg, #F5F4EE 0%, #ECE9D8 100%);
+  border: 1px solid var(--xp-shadow);
+  border-radius: 6px;
+  padding: 12px;
+}
+
+/* ---------- Track Display: XP style ---------- */
+[data-theme="winxp"] .track-display {
+  background: #000;
+  border: 1px solid var(--xp-shadow);
+  border-radius: 3px;
+  padding: 4px 6px;
+}
+
+/* ---------- Visualizer: XP style ---------- */
+[data-theme="winxp"] .mini-visualizer {
+  background: #000;
+  border: 1px solid var(--xp-shadow);
+  border-radius: 3px;
+  padding: 2px;
+}
+
+/* ---------- Volume slider: XP trackbar ---------- */
+[data-theme="winxp"] .volume-control input[type="range"] {
+  background: linear-gradient(to right, var(--xp-green) 0%, var(--xp-green) 75%, #D6D2BD 75%);
+  border: 1px solid var(--xp-shadow);
+  height: 8px;
+  border-radius: 4px;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+[data-theme="winxp"] .volume-control input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 11px;
+  height: 19px;
+  background: linear-gradient(to bottom, #FFFFFF 0%, #ECE9D8 50%, #D5D0C4 51%, #D5CFC2 100%);
+  border: 1px solid #003C9C;
+  border-radius: 3px;
+  cursor: pointer;
+  box-shadow: inset 0 1px 0 #FFFFFF;
+}
+
+[data-theme="winxp"] .volume-control input[type="range"]::-moz-range-thumb {
+  width: 11px;
+  height: 19px;
+  background: linear-gradient(to bottom, #FFFFFF 0%, #ECE9D8 50%, #D5D0C4 51%, #D5CFC2 100%);
+  border: 1px solid #003C9C;
+  border-radius: 3px;
+  cursor: pointer;
+  box-shadow: inset 0 1px 0 #FFFFFF;
+}
+
+/* ---------- Dialog Overlay: XP style ---------- */
+[data-theme="winxp"] .dialog-overlay {
+  background: rgba(0, 0, 0, 0.5);
+}
+
+[data-theme="winxp"] .dialog-window {
+  border: 2px solid var(--xp-blue);
+  border-radius: 8px 8px 0 0;
+  box-shadow: 2px 2px 12px rgba(0, 0, 0, 0.5);
+}
+
+/* ---------- Scrollbar: XP silver/blue ---------- */
+[data-theme="winxp"] ::-webkit-scrollbar {
+  width: 16px;
+  height: 16px;
+}
+
+[data-theme="winxp"] ::-webkit-scrollbar-track {
+  background: linear-gradient(180deg, #ECE9D8 0%, #D6D2BD 100%);
+  border: 1px solid var(--xp-shadow);
+}
+
+[data-theme="winxp"] ::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, #ECE9D8 0%, #D6D2BD 100%);
+  border: 1px solid var(--xp-shadow);
+  border-radius: 2px;
+}
+
+[data-theme="winxp"] ::-webkit-scrollbar-button {
+  background: linear-gradient(180deg, #F5F4EE 0%, #ECE9D8 100%);
+  border: 1px solid var(--xp-shadow);
+  width: 16px;
+  height: 16px;
+}
+
+/* ---------- Section headers: XP ---------- */
+[data-theme="winxp"] .section-header h3 {
+  font-size: 0.95rem;
+  font-weight: bold;
+  font-family: var(--xp-font);
+}
+
+/* ---------- User badge: XP yellow rounded ---------- */
+[data-theme="winxp"] .user-badge {
+  background: #FFFFCC;
+  border: 1px solid #C0B060;
+  border-radius: 4px;
+  box-shadow: none;
+}
+
+/* ---------- Kbd: XP keycap ---------- */
+[data-theme="winxp"] kbd {
+  background: linear-gradient(180deg, #F5F4EE 0%, #ECE9D8 100%);
+  border: 1px solid var(--xp-shadow);
+  border-radius: 3px;
+  box-shadow: inset 1px 1px 1px rgba(0, 0, 0, 0.1);
+}
+
+/* ---------- Station badge: XP blue gradient ---------- */
+[data-theme="winxp"] .station-badge {
+  background: linear-gradient(180deg, var(--xp-blue-hover) 0%, #2156B0 100%);
+  border-radius: 4px;
+  box-shadow: none;
+}
+
+/* ---------- Responsive: XP on mobile ---------- */
+@media (max-width: 640px) {
+  [data-theme="winxp"] .window {
+    border-width: 1px;
+    border-radius: 6px 6px 0 0;
+    box-shadow: 1px 1px 4px rgba(0, 0, 0, 0.3);
+  }
+
+  [data-theme="winxp"] .title-bar {
+    min-height: 26px;
+    padding: 4px 6px;
+  }
+
+  [data-theme="winxp"] .title-bar-text {
+    font-size: 11px;
+  }
+
+  [data-theme="winxp"] .menu-item {
+    padding: 3px 6px;
+    font-size: 0.75rem;
+  }
+
+  [data-theme="winxp"] .title-bar-btn {
+    width: 18px;
+    height: 18px;
   }
 }
