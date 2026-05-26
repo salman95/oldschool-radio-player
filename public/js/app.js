@@ -13,6 +13,7 @@
     isTunedIn: false,
     tunedStationId: null,      // the station id the audio element is actually connected to
     volume: 75,
+    visualizerMode: 'bars',     // 'bars' or 'waveform'
     animationId: null,
     stations: [],
     audioElement: null,
@@ -404,7 +405,6 @@
 
     // Set tuned-in state immediately so UI shows connected, visualizer starts
     state.isTunedIn = true;
-    startVisualizer();
     $('#playing-status-indicator').className = 'status-indicator tunedin';
     updatePlayerDisplay();
     startStatusPoll(stationId);
@@ -417,21 +417,25 @@
     } else {
       state.audioElement.src = '/stream?station_id=' + stationId;
     }
-    state.audioElement.play().then(function () {
-      // Set up Web Audio API after play starts (like spare.html)
-      try {
-        state.audioContext = new (window.AudioContext || window.webkitAudioContext)();
-        state.analyser = state.audioContext.createAnalyser();
-        state.analyser.fftSize = 256;
-        var source = state.audioContext.createMediaElementSource(state.audioElement);
-        source.connect(state.analyser);
-        state.analyser.connect(state.audioContext.destination);
-      } catch (e) {
-        console.warn('Web Audio not available, using fake visualizer');
-        state.audioContext = null;
-        state.analyser = null;
-      }
-    }).catch(function (err) {
+
+    // Set up Web Audio analyser BEFORE play(), so visualizer gets real data from frame 1.
+    // Must happen before startVisualizer() to avoid fake-bar fallback.
+    try {
+      state.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+      state.analyser = state.audioContext.createAnalyser();
+      state.analyser.fftSize = 256;
+      var source = state.audioContext.createMediaElementSource(state.audioElement);
+      source.connect(state.analyser);
+      state.analyser.connect(state.audioContext.destination);
+    } catch (e) {
+      console.warn('Web Audio not available, using fake visualizer');
+      state.audioContext = null;
+      state.analyser = null;
+    }
+
+    startVisualizer();
+
+    state.audioElement.play().catch(function (err) {
       console.error('Play failed:', err);
       setStatus('Could not connect to stream');
     });
@@ -807,17 +811,21 @@
   // ===================== AI News (admin only) =====================
   async function loadAiNews() {
     var keyInput = $('#ai-api-key');
-    var modelSelect = $('#ai-model');
     var statusEl = $('#ai-news-status');
     var textDisplay = $('#ai-news-text-display');
     var toggleBtn = $('#btn-toggle-news');
     var generateBtn = $('#btn-generate-news');
+    var rewriteToggle = $('#ai-rewrite-toggle');
 
     var result = await api('/ai-news/config');
     if (!result.ok) { statusEl.textContent = 'Error: ' + result.error; return; }
 
     keyInput.placeholder = result.has_key ? 'Key saved (enter new one to replace)' : 'sk-...';
-    modelSelect.value = result.model || 'deepseek-chat';
+
+    // AI rewrite toggle
+    if (rewriteToggle) {
+      rewriteToggle.checked = result.use_ai !== false;
+    }
 
     if (result.enabled) {
       toggleBtn.textContent = 'Disable News';
@@ -836,15 +844,14 @@
 
   $('#btn-save-ai-key').addEventListener('click', async function () {
     var key = $('#ai-api-key').value.trim();
-    var model = $('#ai-model').value;
     if (!key) { setStatus('Enter an API key'); return; }
     var result = await api('/ai-news/key', {
       method: 'POST',
-      body: JSON.stringify({ api_key: key, model: model }),
+      body: JSON.stringify({ api_key: key }),
     });
     if (result.ok) {
       $('#ai-api-key').value = '';
-      setStatus('AI News config saved (model: ' + model + ')');
+      setStatus('API key saved (always uses deepseek-v4-flash)');
       await loadAiNews();
     } else {
       setStatus('Error: ' + result.error);
@@ -853,14 +860,16 @@
 
   $('#btn-generate-news').addEventListener('click', async function () {
     var btn = $('#btn-generate-news');
+    var rewriteToggle = $('#ai-rewrite-toggle');
+    var usingAi = rewriteToggle ? rewriteToggle.checked : true;
     btn.disabled = true;
     btn.textContent = 'Generating...';
-    setStatus('Generating AI news via DeepSeek...');
+    setStatus(usingAi ? 'Fetching headlines + generating via DeepSeek...' : 'Fetching headlines + basic reading...');
     var result = await api('/ai-news/generate', { method: 'POST' });
     btn.disabled = false;
     btn.textContent = '\u25B6 Generate News';
     if (result.ok) {
-      setStatus('AI news generated successfully');
+      setStatus('News generated successfully');
       await loadAiNews();
     } else {
       setStatus('Error: ' + result.error);
@@ -877,6 +886,20 @@
     if (result.ok) {
       setStatus(enabled ? 'AI News enabled' : 'AI News disabled');
       await loadAiNews();
+    } else {
+      setStatus('Error: ' + result.error);
+    }
+  });
+
+  // AI rewrite toggle saves preference
+  $('#ai-rewrite-toggle').addEventListener('change', async function () {
+    var useAi = this.checked;
+    var result = await api('/ai-news/rewrite', {
+      method: 'POST',
+      body: JSON.stringify({ use_ai: useAi }),
+    });
+    if (result.ok) {
+      setStatus(useAi ? 'AI news rewrite enabled' : 'AI news rewrite disabled (basic mode)');
     } else {
       setStatus('Error: ' + result.error);
     }
@@ -971,13 +994,21 @@
 
   function animateVisualizer() {
     if (!state.isTunedIn) return;
+
+    ctx.fillStyle = '#000';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    if (state.visualizerMode === 'waveform') {
+      drawWaveform();
+      state.animationId = requestAnimationFrame(animateVisualizer);
+      return;
+    }
+
+    // Bars mode
     var barCount = Math.floor(canvas.width / 4);
     var barWidth = 2;
     var gap = 2;
     var maxH = canvas.height - 4;
-
-    ctx.fillStyle = '#000';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
 
     // Get real frequency data if available, otherwise use fake data
     var freqData;
@@ -1017,6 +1048,54 @@
     }
 
     state.animationId = requestAnimationFrame(animateVisualizer);
+  }
+
+  /* Waveform: oscilloscope-style renderer */
+  function drawWaveform() {
+    var w = canvas.width;
+    var h = canvas.height;
+    var mid = h / 2;
+
+    ctx.strokeStyle = '#00ff00';
+    ctx.lineWidth = 1.5;
+    ctx.shadowBlur = 4;
+    ctx.shadowColor = '#00ff00';
+    ctx.beginPath();
+
+    var samples = 128;
+    var step = w / samples;
+
+    if (state.analyser) {
+      var waveData = new Uint8Array(state.analyser.fftSize);
+      state.analyser.getByteTimeDomainData(waveData);
+
+      for (var i = 0; i < samples; i++) {
+        var idx = Math.floor((i / samples) * waveData.length);
+        var v = (waveData[idx] / 128) - 1; // -1 to 1
+        var x = i * step;
+        var y = mid + v * (mid - 2);
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      }
+    } else {
+      // Fake oscilloscope: composite sine waves
+      var t = Date.now() / 200;
+      for (var j = 0; j < samples; j++) {
+        var pct = j / samples;
+        var v1 = Math.sin(t + pct * 12) * 0.4;
+        var v2 = Math.cos(t * 0.7 + pct * 6) * 0.2;
+        var v3 = Math.sin(t * 1.3 + pct * 20) * 0.15;
+        var v4 = Math.sin(t * 2.1 + pct * 3) * 0.1;
+        var v = v1 + v2 + v3 + v4;
+        var x = j * step;
+        var y = mid + v * (mid - 2);
+        if (j === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      }
+    }
+
+    ctx.stroke();
+    ctx.shadowBlur = 0;
   }
 
   function drawIdleVisualizer() {
@@ -1070,6 +1149,20 @@
   }
 
   // ===================== Init =====================
+  // Restore visualizer preference
+  var savedViz = localStorage.getItem('radioapp-visualizer');
+  if (savedViz === 'bars' || savedViz === 'waveform') {
+    state.visualizerMode = savedViz;
+  }
+  var vizSelector = $('#visualizer-selector');
+  if (vizSelector) {
+    vizSelector.value = state.visualizerMode;
+    vizSelector.addEventListener('change', function () {
+      state.visualizerMode = this.value;
+      localStorage.setItem('radioapp-visualizer', state.visualizerMode);
+    });
+  }
+
   drawIdleVisualizer();
   checkSession();
 
