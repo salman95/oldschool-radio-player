@@ -1,5 +1,5 @@
 const https = require('https');
-const { execSync } = require('child_process');
+const { execFileSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 const db = require('./db');
@@ -96,7 +96,12 @@ function generateNewsText(apiKey, model, headlines) {
         try {
           const json = JSON.parse(data);
           if (json.choices && json.choices[0] && json.choices[0].message) {
-            resolve(json.choices[0].message.content.trim());
+            const content = json.choices[0].message.content;
+            if (typeof content === 'string' && content.trim()) {
+              resolve(content.trim());
+            } else {
+              reject(new Error('DeepSeek returned an empty response — try generating again'));
+            }
           } else if (json.error) {
             reject(new Error(json.error.message || json.error));
           } else {
@@ -118,31 +123,44 @@ function generateNewsText(apiKey, model, headlines) {
 /* ---------- Convert text to speech via edge-tts ---------- */
 
 function generateSpeech(text) {
-  const escaped = text.replace(/'/g, "'\\''");
   const rawFile = path.join(NEWS_DIR, 'raw.mp3');
+
+  if (!text || !text.trim()) {
+    throw new Error('News text is empty — nothing to convert to speech');
+  }
+
+  // Remove any stale output so a failed run can't fool the size check
+  try { fs.unlinkSync(rawFile); } catch (e) { /* didn't exist */ }
+
   try {
     // Step 1: Generate speech via edge-tts
-    execSync(
-      `edge-tts --voice en-US-JennyNeural --rate=+0% --pitch=+0Hz ` +
-      `--text '${escaped}' --write-media "${rawFile}" 2>/dev/null`,
-      { timeout: 60000 }
+    // execFileSync: no shell involved, so no quoting/escaping issues,
+    // and stderr is captured for real error messages.
+    execFileSync(
+      'edge-tts',
+      ['--voice', 'en-US-JennyNeural', '--rate=+0%', '--pitch=+0Hz',
+       '--text', text, '--write-media', rawFile],
+      { timeout: 60000, stdio: ['ignore', 'ignore', 'pipe'] }
     );
     if (!fs.existsSync(rawFile) || fs.statSync(rawFile).size < 1000) {
-      throw new Error('Generated audio too small or missing');
+      throw new Error('edge-tts exited successfully but produced no audio');
     }
     // Step 2: Re-encode to standard MP3 (44100Hz, 128kbps, stereo)
     // This ensures seamless transition between music and news segments.
-    execSync(
-      `ffmpeg -y -i "${rawFile}" -f mp3 -b:a 128k -ar 44100 -ac 2 "${NEWS_FILE}" 2>/dev/null`,
-      { timeout: 30000 }
+    execFileSync(
+      'ffmpeg',
+      ['-y', '-i', rawFile, '-f', 'mp3', '-b:a', '128k', '-ar', '44100', '-ac', '2', NEWS_FILE],
+      { timeout: 30000, stdio: ['ignore', 'ignore', 'pipe'] }
     );
-    fs.unlinkSync(rawFile);
+    try { fs.unlinkSync(rawFile); } catch (e) { /* ignore */ }
     if (fs.existsSync(NEWS_FILE) && fs.statSync(NEWS_FILE).size > 1000) {
       return NEWS_FILE;
     }
-    throw new Error('Re-encoding failed');
+    throw new Error('Re-encoding produced no audio');
   } catch (e) {
-    throw new Error(`TTS failed: ${e.message}`);
+    // Surface the actual underlying error (edge-tts/ffmpeg stderr), not just a generic message
+    const detail = e.stderr ? e.stderr.toString().trim().split('\n').pop() : '';
+    throw new Error(`TTS failed: ${detail || e.message}`);
   }
 }
 
@@ -198,7 +216,10 @@ async function generateNews(apiKey, useAi) {
 
   console.log('[ai-news] Generating news text via DeepSeek (deepseek-v4-flash)...');
   const text = await generateNewsText(apiKey, 'deepseek-v4-flash', headlines);
-  console.log('[ai-news] News text generated, converting to speech...');
+  if (!text || !text.trim()) {
+    throw new Error('DeepSeek returned an empty news script — try generating again');
+  }
+  console.log(`[ai-news] News text generated (${text.length} chars), converting to speech...`);
   const audioPath = generateSpeech(text);
   console.log('[ai-news] Speech generated:', audioPath);
   return { text, audioPath };
@@ -242,6 +263,7 @@ function isNewsReady() {
 
 module.exports = {
   generateNews,
+  generateSpeech,
   refreshNews,
   getNewsAudioPath,
   isNewsReady,

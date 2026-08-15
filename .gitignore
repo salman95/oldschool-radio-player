@@ -3,6 +3,7 @@ radio.db
 radio.db-shm
 radio.db-wal
 public/news/segment.mp3
+public/news/raw.mp3
 starter_prompt.txt
 *.log
 .env

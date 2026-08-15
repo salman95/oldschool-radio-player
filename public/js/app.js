@@ -836,10 +836,15 @@
     }
     toggleBtn.disabled = !result.has_key;
     toggleBtn.dataset.enabled = result.enabled ? '1' : '0';
-    generateBtn.disabled = false;
+    generateBtn.disabled = !result.has_key;
+    generateBtn.title = result.has_key ? '' : 'Save a DeepSeek API key first';
 
     if (result.news_text) textDisplay.textContent = result.news_text;
-    if (result.generated_at) statusEl.textContent = 'Last generated: ' + result.generated_at;
+    if (!result.has_key) {
+      statusEl.textContent = 'No API key saved \u2014 enter and save a DeepSeek API key above to generate news.';
+    } else if (result.generated_at) {
+      statusEl.textContent = 'Last generated: ' + result.generated_at;
+    }
   }
 
   $('#btn-save-ai-key').addEventListener('click', async function () {
@@ -859,20 +864,35 @@
   });
 
   $('#btn-generate-news').addEventListener('click', async function () {
-    var btn = $('#btn-generate-news');
+    var btn = this;
     var rewriteToggle = $('#ai-rewrite-toggle');
+    var statusEl = $('#ai-news-status');
     var usingAi = rewriteToggle ? rewriteToggle.checked : true;
+    var progressMsg = usingAi ? 'Fetching headlines + generating via DeepSeek...' : 'Fetching headlines + basic reading...';
     btn.disabled = true;
     btn.textContent = 'Generating...';
-    setStatus(usingAi ? 'Fetching headlines + generating via DeepSeek...' : 'Fetching headlines + basic reading...');
-    var result = await api('/ai-news/generate', { method: 'POST' });
-    btn.disabled = false;
-    btn.textContent = '\u25B6 Generate News';
-    if (result.ok) {
-      setStatus('News generated successfully');
-      await loadAiNews();
-    } else {
-      setStatus('Error: ' + result.error);
+    statusEl.textContent = progressMsg;
+    setStatus(progressMsg);
+    try {
+      var result = await api('/ai-news/generate', { method: 'POST' });
+      if (result.ok) {
+        setStatus('News generated successfully');
+        await loadAiNews();
+      } else {
+        var msg = 'Error: ' + (result.error || 'Unknown error');
+        statusEl.textContent = msg;
+        setStatus(msg);
+      }
+    } catch (e) {
+      var errMsg = 'Error: ' + (e.message || 'Request failed');
+      statusEl.textContent = errMsg;
+      setStatus(errMsg);
+    } finally {
+      // Re-enable unless loadAiNews() disabled it (no key saved)
+      if (!btn.disabled || btn.textContent === 'Generating...') {
+        btn.disabled = false;
+        btn.textContent = '\u25B6 Generate News';
+      }
     }
   });
 
