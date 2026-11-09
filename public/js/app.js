@@ -224,13 +224,12 @@
           actionsHtml = '<button class="btn btn-sm btn-danger" data-action="stop" data-station="' + station.id + '">&#9632; Stop</button>';
         } else {
           actionsHtml = '<button class="btn btn-sm" data-action="play" data-station="' + station.id + '" ' +
-            (station.track_count === 0 ? 'disabled title="No tracks"' : '') + '>&#9654; Play</button>';
+            (station.track_count === 0 && !station.stream_url ? 'disabled title="No tracks"' : '') + '>&#9654; Play</button>';
         }
         actionsHtml += ' <button class="btn btn-sm btn-danger" data-action="delete" data-station="' + station.id + '">&#10006;</button>';
       } else {
-        // Listener: Tune In/Disconnect
-        // Remote streams are always available; local streams need is_playing
-        if (station.stream_url || station.is_playing) {
+        // Listener: Tune In/Disconnect (only while the admin has the station broadcasting)
+        if (station.is_playing) {
           if (state.isTunedIn && state.currentStation && state.currentStation.id === station.id) {
             actionsHtml = '<button class="btn btn-sm btn-danger" data-action="disconnect" data-station="' + station.id + '">&#9632; Disconnect</button>';
           } else {
@@ -340,8 +339,7 @@
   async function tuneIntoStation(stationId) {
     var station = state.stations.find(function (s) { return s.id === stationId; });
     if (!station) return;
-    // Remote streams don't need Play/Stop — stream directly from URL
-    if (!station.stream_url && !station.is_playing) {
+    if (!station.is_playing) {
       setStatus('Station is not broadcasting');
       return;
     }
@@ -409,14 +407,10 @@
     updatePlayerDisplay();
     startStatusPoll(stationId);
 
-    // Remote URL streams connect directly + fetch live song metadata
-    if (station.stream_url) {
-      state.audioElement.src = station.stream_url;
-      state.audioElement.crossOrigin = 'anonymous';
-      startMetadataPoll(station.stream_url);
-    } else {
-      state.audioElement.src = '/stream?station_id=' + stationId;
-    }
+    // All stations (local and remote) are relayed by the server
+    state.audioElement.src = '/stream?station_id=' + stationId;
+    // Remote stations: also fetch live song metadata from the source server
+    if (station.stream_url) startMetadataPoll(station.stream_url);
 
     // Set up Web Audio analyser BEFORE play(), so visualizer gets real data from frame 1.
     // Must happen before startVisualizer() to avoid fake-bar fallback.
@@ -719,19 +713,25 @@
         '<td>' + user.created_at + '</td>' +
         '<td>' + (isSelf
           ? '<span style="color:#888;font-size:0.75rem;">(you)</span>'
-          : '<button class="btn btn-sm btn-danger" data-action="delete-user" data-user-id="' + user.id + '">&#10006; Delete</button>') +
+          : '<button class="btn btn-sm" data-action="reset-password" data-user-id="' + user.id + '">Password</button> ' +
+            '<button class="btn btn-sm btn-danger" data-action="delete-user" data-user-id="' + user.id + '">&#10006; Delete</button>') +
         '</td>';
       list.appendChild(tr);
     });
   }
 
   $('#user-list').addEventListener('click', async function (e) {
-    var btn = e.target.closest('[data-action="delete-user"]');
+    var btn = e.target.closest('[data-action="delete-user"], [data-action="reset-password"]');
     if (!btn) return;
     var userId = parseInt(btn.dataset.userId, 10);
     var users = await api('/users');
     var user = users.ok ? users.users.find(function (u) { return u.id === userId; }) : null;
     if (!user) return;
+
+    if (btn.dataset.action === 'reset-password') {
+      openPasswordDialog(user);
+      return;
+    }
 
     showConfirm('Delete user "' + user.username + '"?', async function () {
       var result = await api('/users/' + userId, { method: 'DELETE' });
@@ -773,6 +773,54 @@
     errorMsg.textContent = '';
     await loadUsers();
     setStatus('User "' + username + '" created as ' + role);
+  });
+
+  // ===================== Change Password =====================
+  // target = null changes your own password (requires the current one);
+  // target = a user object lets an admin set that user's password.
+  var passwordDialog = $('#password-dialog');
+  var passwordTarget = null;
+
+  function openPasswordDialog(target) {
+    passwordTarget = target;
+    $('#password-form').reset();
+    $('#password-error').textContent = '';
+    $('#password-dialog-title').textContent = target ? 'Set Password for ' + target.username : 'Change Your Password';
+    $('#current-password-group').style.display = target ? 'none' : '';
+    $('#current-password').required = !target;
+    passwordDialog.classList.add('active');
+    (target ? $('#change-password') : $('#current-password')).focus();
+  }
+
+  $('#menu-password').addEventListener('click', function () { openPasswordDialog(null); });
+
+  $('#password-form').addEventListener('submit', async function (e) {
+    e.preventDefault();
+    var errorMsg = $('#password-error');
+    var newPassword = $('#change-password').value;
+    if (newPassword !== $('#change-password-confirm').value) {
+      errorMsg.textContent = 'Passwords do not match.';
+      return;
+    }
+
+    var result = passwordTarget
+      ? await api('/users/' + passwordTarget.id + '/password', {
+          method: 'PATCH',
+          body: JSON.stringify({ password: newPassword }),
+        })
+      : await api('/account/password', {
+          method: 'POST',
+          body: JSON.stringify({ current_password: $('#current-password').value, new_password: newPassword }),
+        });
+
+    if (!result.ok) {
+      errorMsg.textContent = result.error || 'Failed to change password';
+      return;
+    }
+
+    passwordDialog.classList.remove('active');
+    setStatus(passwordTarget ? 'Password updated for "' + passwordTarget.username + '"' : 'Your password was changed');
+    this.reset();
   });
 
   // ===================== Logs (admin only) =====================
@@ -820,7 +868,12 @@
     var result = await api('/ai-news/config');
     if (!result.ok) { statusEl.textContent = 'Error: ' + result.error; return; }
 
-    keyInput.placeholder = result.has_key ? 'Key saved (enter new one to replace)' : 'sk-...';
+    if (result.key_from_env) {
+      keyInput.placeholder = 'Set by DEEPSEEK_API_KEY environment variable';
+    } else {
+      keyInput.placeholder = result.has_key ? 'Key saved (enter new one to replace)' : 'sk-...';
+    }
+    $('#ai-track-interval').value = result.track_interval || 10;
 
     // AI rewrite toggle
     if (rewriteToggle) {
@@ -891,6 +944,19 @@
     }
   });
 
+  $('#btn-save-interval').addEventListener('click', async function () {
+    var interval = parseInt($('#ai-track-interval').value, 10);
+    var result = await api('/ai-news/interval', {
+      method: 'POST',
+      body: JSON.stringify({ track_interval: interval }),
+    });
+    if (result.ok) {
+      setStatus('News will play every ' + result.track_interval + ' songs');
+    } else {
+      setStatus('Error: ' + result.error);
+    }
+  });
+
   // AI rewrite toggle saves preference
   $('#ai-rewrite-toggle').addEventListener('change', async function () {
     var useAi = this.checked;
@@ -946,7 +1012,7 @@
       setStatus('Please select a station first');
       return;
     }
-    if (state.currentStation.stream_url || state.currentStation.is_playing) {
+    if (state.currentStation.is_playing) {
       tuneIntoStation(state.currentStation.id);
     } else {
       setStatus('Station is not broadcasting');

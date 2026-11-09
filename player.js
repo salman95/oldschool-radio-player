@@ -1,22 +1,31 @@
-const fs = require('fs');
-const { spawn } = require('child_process');
+const { spawn, execFileSync } = require('child_process');
 const path = require('path');
-require('events').EventEmitter.defaultMaxListeners = 50;
 const aiNews = require('./ai-news');
 
 // Detect soxr resampler once at module load: `-h resampler` shows SWResampler options (~5KB)
 // soxr is a resampler engine, not a standalone filter — `-filters` won't show it
 let _ffmpegHasSoxr = false;
 try {
-  const result = require('child_process').execSync('ffmpeg -h resampler 2>&1', { timeout: 3000 }).toString();
+  const result = execFileSync('ffmpeg', ['-hide_banner', '-h', 'resampler'], { timeout: 3000 }).toString();
   _ffmpegHasSoxr = result.includes('soxr');
 } catch (e) { /* keep false */ }
 
+// Recent audio sent to a listener on connect so the browser can start playing immediately.
+// Every listener gets the same amount, so all listeners stay in sync with each other.
+const BACKLOG_BYTES = 64 * 1024;
+// A listener whose socket has this much unsent data is too slow to keep up and is dropped
+// (instead of silently skipping chunks and leaving holes in their audio).
+const MAX_PENDING_BYTES = 512 * 1024;
+// Delay before trying the next track after a failure, so broken files can't spin the CPU.
+const FAILURE_RETRY_MS = 250;
+// Stop the station after this many consecutive tracks failed to produce audio.
+const MAX_CONSECUTIVE_FAILURES = 25;
+const REMOTE_RECONNECT_MS = 5000;
+
 /* ---------- Station Player ---------- */
-// Direct file reads via fs.readSync with consistent setTimeout pacing.
-// No stream pipeline — just raw reads at a controlled rate.
-// 16KB every 375ms = 43 KB/s = 344 kbps.
-// FLAC/OGG/WAV transcoded to MP3 via ffmpeg with same pacing.
+// Every track is played through ffmpeg with `-re`, which emits audio at real-time speed
+// regardless of bitrate. MP3s are copied as-is; other formats are transcoded to MP3.
+// Output is forwarded to listeners as it arrives, so all listeners hear the same thing live.
 class StationPlayer {
   constructor(stationId, stationName, tracks, onEvent) {
     this.stationId = stationId;
@@ -29,20 +38,11 @@ class StationPlayer {
     this.currentTrackIndex = -1;
     this.currentTrackName = '';
 
-    // File reading state
-    this._fd = null;
-    this._fileSize = 0;
-    this._filePos = 0;
-    this._timer = null;
-
-    // Remote streaming state
-    this._remoteReq = null;
+    // The ffmpeg process currently producing audio (local track, news, or remote stream)
+    this._proc = null;
+    this._nextTimer = null;
     this._reconnectTimer = null;
-
-    // FLAC transcoding
-    this._ffmpegProcess = null;
-    this._ffmpegQueue = [];
-    this._ffmpegDraining = false;
+    this._failures = 0;
 
     // News segment tracking
     this._trackCount = -1;   // tracks played since last news
@@ -51,19 +51,17 @@ class StationPlayer {
     this._shuffleOrder = [];  // shuffled track indices
     this._shuffleIdx = 0;    // current position in shuffle order
 
-    // Listeners
+    // Listeners + burst-on-connect backlog
     this._listeners = new Set();
-
-    // Pacing: 16KB every 375ms = 43 KB/s = 344 kbps
-    this.CHUNK = 16 * 1024;
-    this.INTERVAL = 375;
+    this._backlog = [];
+    this._backlogSize = 0;
   }
 
   start() {
     if (this.isPlaying) return;
-    this._cleaned = false;
     this.isPlaying = true;
     this.currentTrackIndex = -1;
+    this._failures = 0;
 
     if (this.streamUrl) {
       // Remote stream — no tracks needed
@@ -84,15 +82,6 @@ class StationPlayer {
     this.onEvent(this.stationId, 'started', this.stationName);
   }
 
-  _shuffleTracks() {
-    this._shuffleOrder = Array.from({ length: this.tracks.length }, (_, i) => i);
-    for (let i = this._shuffleOrder.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [this._shuffleOrder[i], this._shuffleOrder[j]] = [this._shuffleOrder[j], this._shuffleOrder[i]];
-    }
-    this._shuffleIdx = 0;
-  }
-
   stop() {
     if (!this.isPlaying) return;
     this.isPlaying = false;
@@ -104,26 +93,34 @@ class StationPlayer {
     this.onEvent(this.stationId, 'stopped', this.stationName);
   }
 
-  _cleanup() {
-    // Guard against re-entrant cleanup
-    if (this._cleaned) return;
-    this._cleaned = true;
-
-    this._closeFile();
-    if (this._ffmpegProcess) { this._ffmpegProcess.kill(); this._ffmpegProcess = null; }
-    this._ffmpegQueue = [];
-    this._ffmpegDraining = false;
-    if (this._timer) { clearTimeout(this._timer); this._timer = null; }
-
-    if (this._reconnectTimer) { clearTimeout(this._reconnectTimer); this._reconnectTimer = null; }
-    if (this._remoteReq) { this._remoteReq.destroy(); this._remoteReq = null; }
-    this._reconnecting = false;
-    this._remoteBuffer = [];
-    this._remoteBufferSize = 0;
+  // Replace the track list (e.g. after a rescan). Safe to call while playing.
+  setTracks(tracks) {
+    this.tracks = tracks || [];
+    this._shuffleTracks();
   }
 
-  _closeFile() {
-    if (this._fd) { try { fs.closeSync(this._fd); } catch (e) {} this._fd = null; }
+  _shuffleTracks() {
+    this._shuffleOrder = Array.from({ length: this.tracks.length }, (_, i) => i);
+    for (let i = this._shuffleOrder.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [this._shuffleOrder[i], this._shuffleOrder[j]] = [this._shuffleOrder[j], this._shuffleOrder[i]];
+    }
+    this._shuffleIdx = 0;
+  }
+
+  _cleanup() {
+    this._killProc();
+    if (this._nextTimer) { clearTimeout(this._nextTimer); this._nextTimer = null; }
+    if (this._reconnectTimer) { clearTimeout(this._reconnectTimer); this._reconnectTimer = null; }
+    this._backlog = [];
+    this._backlogSize = 0;
+  }
+
+  _killProc() {
+    const proc = this._proc;
+    // Clear first so the process's exit handlers see it is no longer current
+    this._proc = null;
+    if (proc) { try { proc.kill('SIGKILL'); } catch (e) { /* ignore */ } }
   }
 
   // ---- Listeners ----
@@ -137,14 +134,12 @@ class StationPlayer {
     res.setHeader('X-Accel-Buffering', 'no');
     res.flushHeaders();
 
-    const listener = { res, draining: false };
+    const listener = { res };
     this._listeners.add(listener);
 
-    // Send backlog from remote stream buffer so new listener gets data immediately
-    if (this._remoteBuffer && this._remoteBuffer.length > 0) {
-      for (var i = 0; i < this._remoteBuffer.length; i++) {
-        try { if (!res.write(this._remoteBuffer[i])) break; } catch (e) { break; }
-      }
+    // Send recent audio so the new listener's player can start immediately
+    for (const chunk of this._backlog) {
+      try { res.write(chunk); } catch (e) { break; }
     }
 
     res.on('close', () => {
@@ -164,208 +159,141 @@ class StationPlayer {
 
   // ---- Data Feeding ----
 
-  _feed(chunk) {
-    const toRemove = [];
+  _broadcast(chunk) {
+    this._backlog.push(chunk);
+    this._backlogSize += chunk.length;
+    while (this._backlogSize > BACKLOG_BYTES && this._backlog.length > 1) {
+      this._backlogSize -= this._backlog.shift().length;
+    }
+
     for (const l of this._listeners) {
-      if (l.draining) continue;
+      if (l.res.writableLength > MAX_PENDING_BYTES) {
+        // Client can't keep up with real time — disconnect rather than buffer forever
+        this._listeners.delete(l);
+        try { l.res.destroy(); } catch (e) { /* ignore */ }
+        continue;
+      }
       try {
-        const ok = l.res.write(chunk);
-        if (!ok) {
-          l.draining = true;
-          l.res.once('drain', () => { l.draining = false; });
-        }
+        l.res.write(chunk);
       } catch (e) {
-        toRemove.push(l);
+        this._listeners.delete(l);
       }
     }
-    for (const l of toRemove) this._listeners.delete(l);
   }
 
   // ---- Track Playback ----
 
+  _scheduleNext(delay) {
+    if (!this.isPlaying) return;
+    if (this._nextTimer) clearTimeout(this._nextTimer);
+    this._nextTimer = setTimeout(() => {
+      this._nextTimer = null;
+      this._nextTrack();
+    }, delay);
+  }
+
   _nextTrack() {
     if (!this.isPlaying) return;
-    this._cleanup();
+    this._killProc();
+
+    if (this.tracks.length === 0) {
+      this.onEvent(this.stationId, 'error', 'No tracks left to play');
+      this.stop();
+      return;
+    }
 
     this._trackCount++;
 
     // Check if it's time for an AI news segment
-    const interval = this._newsInterval || 10;
+    const interval = aiNews.getTrackInterval();
     if (this._trackCount >= interval && aiNews.isNewsReady()) {
       const newsPath = aiNews.getNewsAudioPath();
       if (newsPath) {
         this._trackCount = 0;
-        this.currentTrackName = '\uD83D\uDCF0 AI News Roundup';
+        this.currentTrackName = '📰 AI News Roundup';
         this.onEvent(this.stationId, 'track_change', this.currentTrackName);
-        this._playNewsFile(newsPath);
+        this._playFile(newsPath, true);
         return;
       }
     }
 
     // Play next music track (shuffled order)
-    this.currentTrackIndex = this._shuffleOrder[this._shuffleIdx];
-    this._shuffleIdx = (this._shuffleIdx + 1) % this._shuffleOrder.length;
-    if (this._shuffleIdx === 0) this._shuffleTracks();
+    if (this._shuffleOrder.length !== this.tracks.length || this._shuffleIdx >= this._shuffleOrder.length) {
+      this._shuffleTracks();
+    }
+    this.currentTrackIndex = this._shuffleOrder[this._shuffleIdx++];
     const track = this.tracks[this.currentTrackIndex];
-
-    try {
-      const stat = fs.statSync(track.filepath);
-      if (!stat || stat.size === 0) { setImmediate(() => this._nextTrack()); return; }
-    } catch (e) { setImmediate(() => this._nextTrack()); return; }
 
     this.currentTrackName = track.display_name;
     this.onEvent(this.stationId, 'track_change', track.display_name);
 
     const ext = path.extname(track.filepath).toLowerCase();
-    if (ext !== '.mp3') {
-      const probe = this._validateAudioFile(track.filepath);
-      if (!probe.valid) {
-        console.error(`[player] Skipping corrupt file: ${path.basename(track.filepath)} (${probe.reason})`);
-        setImmediate(() => this._nextTrack());
-        return;
-      }
-      if (probe.sampleRate > 48000 || probe.sampleRate < 8000) {
-        console.log(`[player] Unusual sample rate ${probe.sampleRate}Hz for ${path.basename(track.filepath)}`);
-      }
-    }
-    if (ext === '.flac' || ext === '.ogg' || ext === '.wma' || ext === '.wav' ||
-        ext === '.m4a' || ext === '.aac' || ext === '.opus' || ext === '.webm') {
-      this._startFfmpeg(track.filepath);
+    this._playFile(track.filepath, ext === '.mp3');
+  }
+
+  _playFile(filepath, isMp3) {
+    const args = ['-hide_banner', '-nostdin', '-nostats', '-loglevel', 'error',
+                  '-re', '-i', filepath, '-map', '0:a:0', '-vn', '-map_metadata', '-1'];
+    if (isMp3) {
+      args.push('-c:a', 'copy');
     } else {
-      this._openFile(track.filepath);
+      if (_ffmpegHasSoxr) args.push('-af', 'aresample=resampler=soxr:precision=28:cutoff=0.99');
+      args.push('-c:a', 'libmp3lame', '-q:a', '0', '-ar', '44100', '-ac', '2');
     }
-  }
+    // No ID3/Xing headers: they would be injected mid-stream at every track change
+    args.push('-id3v2_version', '0', '-write_id3v1', '0', '-write_xing', '0', '-f', 'mp3', '-');
 
-  _validateAudioFile(filepath) {
-    try {
-      const out = require('child_process').execSync(
-        `ffprobe -v quiet -print_format json -show_streams "${filepath}"`,
-        { timeout: 5000 }
-      );
-      const info = JSON.parse(out.toString());
-      const stream = info.streams && info.streams[0];
-      if (!stream) return { valid: false, reason: 'no streams' };
-      if (!stream.duration || stream.duration === 'N/A') return { valid: false, reason: 'no duration' };
-      if (stream.codec_type !== 'audio') return { valid: false, reason: 'not audio' };
-      return {
-        valid: true,
-        sampleRate: parseInt(stream.sample_rate) || 44100,
-        channels: stream.channels || 2,
-        codec: stream.codec_name,
-      };
-    } catch (e) {
-      return { valid: false, reason: e.message };
-    }
-  }
-
-  _playNewsFile(filepath) { this._openFile(filepath); }
-
-  _openFile(filepath) {
-    try {
-      this._fd = fs.openSync(filepath, 'r');
-      this._fileSize = fs.statSync(filepath).size;
-      this._filePos = 0;
-      this._scheduleRead();
-    } catch (e) {
-      setImmediate(() => this._nextTrack());
-    }
-  }
-
-  _scheduleRead() {
-    if (!this.isPlaying || !this._fd) return;
-
-    const remaining = this._fileSize - this._filePos;
-    if (remaining <= 0) {
-      this._closeFile();
-      setImmediate(() => this._nextTrack());
-      return;
-    }
-
-    const toRead = Math.min(this.CHUNK, remaining);
-    const buf = Buffer.alloc(toRead);
-
-    try {
-      const bytesRead = fs.readSync(this._fd, buf, 0, toRead, this._filePos);
-      if (bytesRead <= 0) {
-        this._closeFile();
-        setImmediate(() => this._nextTrack());
+    const proc = this._spawnFfmpeg(args, (bytes, stderrTail) => {
+      if (bytes > 0) {
+        this._failures = 0;
+        this._scheduleNext(0);
         return;
       }
-      this._filePos += bytesRead;
-      this._feed(buf.slice(0, bytesRead));
-    } catch (e) {
-      this._closeFile();
-      setImmediate(() => this._nextTrack());
-      return;
-    }
-
-    this._timer = setTimeout(() => this._scheduleRead(), this.INTERVAL);
+      this._failures++;
+      const reason = stderrTail.trim().split('\n').pop() || 'no audio produced';
+      console.error(`[player] Skipping unplayable file: ${path.basename(filepath)} (${reason.slice(0, 200)})`);
+      if (this._failures >= Math.min(this.tracks.length || 1, MAX_CONSECUTIVE_FAILURES)) {
+        this.onEvent(this.stationId, 'error', `${this._failures} consecutive tracks failed to play`);
+        this.stop();
+        return;
+      }
+      this._scheduleNext(FAILURE_RETRY_MS);
+    });
+    this._proc = proc;
   }
 
-  // ---- FLAC Transcoding ----
+  // Spawns ffmpeg, forwards stdout to listeners, and calls onDone(bytesProduced, stderrTail)
+  // exactly once when the process exits — unless it was replaced or killed in the meantime.
+  _spawnFfmpeg(args, onDone) {
+    const proc = spawn('ffmpeg', args, { stdio: ['ignore', 'pipe', 'pipe'] });
+    let bytes = 0;
+    let finished = false;
 
-  _startFfmpeg(filepath) {
-    const args = ['-y', '-err_detect', 'ignore_err', '-fflags', '+genpts', '-i', filepath];
-    if (_ffmpegHasSoxr) args.push('-af', 'aresample=resampler=soxr:precision=28:cutoff=0.99');
-    args.push('-c:a', 'libmp3lame', '-q:a', '0', '-ar', '44100', '-ac', '2', '-sample_fmt', 's16',
-              '-map_metadata', '0', '-id3v2_version', '3', '-write_id3v1', '1',
-              '-f', 'mp3', '-');
-    const ffmpeg = spawn('ffmpeg', args, { stdio: ['ignore', 'pipe', 'pipe'] });
-
-    this._ffmpegProcess = ffmpeg;
-    this._ffmpegQueue = [];
-    this._ffmpegDraining = false;
-
-    // Guard against duplicate _nextTrack calls from multiple events
-    var trackAdvanced = false;
-    const advanceTrack = (reason) => {
-      if (trackAdvanced) return;
-      trackAdvanced = true;
-      if (reason) console.error(`[player] ffmpeg ${reason}: ${path.basename(filepath)}`);
-      try { ffmpeg.kill(); } catch (e) { /* ignore */ }
-      setImmediate(() => this._nextTrack());
-    };
-
-    ffmpeg.stdout.on('data', (chunk) => {
-      // Break into 16KB pieces and queue them
-      for (let i = 0; i < chunk.length; i += this.CHUNK) {
-        this._ffmpegQueue.push(chunk.slice(i, Math.min(i + this.CHUNK, chunk.length)));
-      }
-      if (!this._ffmpegDraining) {
-        this._ffmpegDraining = true;
-        const drainQueue = () => {
-          if (this._ffmpegQueue.length === 0) { this._ffmpegDraining = false; return; }
-          if (!this.isPlaying) { ffmpeg.kill(); return; }
-          this._feed(this._ffmpegQueue.shift());
-          this._timer = setTimeout(drainQueue, this.INTERVAL);
-        };
-        drainQueue();
-      }
-    });
-
-    ffmpeg.stdout.on('end', () => { advanceTrack('done'); });
-    ffmpeg.on('error', (err) => { advanceTrack('spawn error: ' + err.message); });
-    ffmpeg.on('close', (code) => {
-      if (code !== 0 && this._ffmpegQueue.length === 0) advanceTrack('exit code ' + code);
+    proc.stdout.on('data', (chunk) => {
+      if (this._proc !== proc) return;
+      bytes += chunk.length;
+      this._broadcast(chunk);
     });
 
     // Collect only trailing stderr — bounded to 2KB to prevent memory leak
-    var stderrTail = '';
-    ffmpeg.stderr.on('data', (d) => {
+    let stderrTail = '';
+    proc.stderr.on('data', (d) => {
       stderrTail += d.toString();
       if (stderrTail.length > 2048) stderrTail = stderrTail.slice(-2048);
     });
-    ffmpeg.stderr.on('end', () => {
-      if (this._ffmpegQueue.length === 0) {
-        const errLines = stderrTail.split('\n').filter(l => l.trim().length > 0);
-        if (errLines.length > 0) {
-          const lastLine = errLines[errLines.length - 1];
-          if (lastLine.includes('Error') || lastLine.includes('error') || lastLine.includes('invalid')) {
-            console.error(`[player] ffmpeg error for ${path.basename(filepath)}: ${lastLine.slice(0, 200)}`);
-          }
-        }
-      }
-    });
+
+    const finish = () => {
+      if (finished) return;
+      finished = true;
+      if (this._proc !== proc || !this.isPlaying) return;
+      this._proc = null;
+      onDone(bytes, stderrTail);
+    };
+    proc.on('error', (err) => { stderrTail += '\nspawn error: ' + err.message; finish(); });
+    // 'close' fires after stdout is fully consumed, so no audio is lost at track end
+    proc.on('close', finish);
+
+    return proc;
   }
 
   // ---- Remote Stream Playback ----
@@ -375,66 +303,25 @@ class StationPlayer {
   _playRemote() {
     if (!this.isPlaying || !this.streamUrl) return;
 
-    // Guard against duplicate reconnect timers firing
-    if (this._reconnecting) return;
-    this._reconnecting = true;
+    // Transcode remote stream to MP3 via ffmpeg for universal browser support.
+    // Only network protocols are allowed, so a stream URL can't read local files.
+    const args = ['-hide_banner', '-nostdin', '-nostats', '-loglevel', 'error',
+                  '-protocol_whitelist', 'http,https,tcp,tls,crypto',
+                  '-rw_timeout', '15000000',
+                  '-i', this.streamUrl,
+                  '-map', '0:a:0', '-vn', '-map_metadata', '-1',
+                  '-c:a', 'libmp3lame', '-b:a', '128k', '-ar', '44100', '-ac', '2',
+                  '-id3v2_version', '0', '-write_id3v1', '0', '-write_xing', '0',
+                  '-f', 'mp3', '-'];
 
-    // Transcode remote stream to MP3 via ffmpeg for universal browser support
-    const ffmpeg = spawn('ffmpeg', [
-      '-i', this.streamUrl,
-      '-f', 'mp3',
-      '-b:a', '128k',
-      '-ar', '44100',
-      '-ac', '2',
-      '-'  // output to stdout
-    ], { stdio: ['ignore', 'pipe', 'pipe'] });
-
-    this._remoteReq = ffmpeg;
-
-    // Buffer recent output so late-connecting listeners get data immediately
-    this._remoteBuffer = [];
-    this._remoteBufferSize = 0;
-    var MAX_BUF = 256 * 1024; // 256KB buffer
-
-    ffmpeg.stdout.on('data', (chunk) => {
-      this._feed(chunk);
-      // Keep a backlog for new listeners
-      this._remoteBuffer.push(chunk);
-      this._remoteBufferSize += chunk.length;
-      while (this._remoteBufferSize > MAX_BUF && this._remoteBuffer.length > 0) {
-        this._remoteBufferSize -= this._remoteBuffer.shift().length;
+    this._proc = this._spawnFfmpeg(args, (bytes, stderrTail) => {
+      if (stderrTail.trim()) {
+        console.error('[player] ffmpeg error for remote stream:', stderrTail.trim().slice(-300));
       }
-    });
-
-    // Use a single cleanup-and-reconnect handler to prevent duplicate timers
-    var didReconnect = false;
-    const scheduleReconnect = () => {
-      if (didReconnect || !this.isPlaying) return;
-      didReconnect = true;
       this._reconnectTimer = setTimeout(() => {
-        this._reconnecting = false;
+        this._reconnectTimer = null;
         this._playRemote();
-      }, 5000);
-    };
-
-    ffmpeg.stdout.on('end', () => { scheduleReconnect(); });
-    ffmpeg.on('error', () => { scheduleReconnect(); });
-    ffmpeg.on('close', (code) => {
-      this._remoteReq = null;
-      scheduleReconnect();
-    });
-
-    // Collect only trailing stderr for diagnostics — do NOT accumulate unbounded
-    var stderrTail = '';
-    ffmpeg.stderr.on('data', (d) => {
-      stderrTail += d.toString();
-      // Keep only last 2KB of stderr to prevent memory leak
-      if (stderrTail.length > 2048) stderrTail = stderrTail.slice(-2048);
-    });
-    ffmpeg.stderr.on('end', () => {
-      if (stderrTail.includes('Error') || stderrTail.includes('error')) {
-        console.error('[player] ffmpeg error for remote stream:', stderrTail.slice(-300));
-      }
+      }, REMOTE_RECONNECT_MS);
     });
   }
 

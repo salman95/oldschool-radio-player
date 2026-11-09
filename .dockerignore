@@ -12,8 +12,10 @@ coverage/
 .DS_Store
 docker-compose*.yml
 .dockerignore
+data/
+music
 radio.db
 radio.db-shm
 radio.db-wal
+secret.key
 public/news/*.mp3
-public/news/segment.mp3

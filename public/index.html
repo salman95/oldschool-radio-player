@@ -74,6 +74,7 @@
         <button class="menu-item admin-only" data-menu="logs">Logs</button>
         <button class="menu-item" data-menu="help">Help</button>
         <span class="menu-spacer"></span>
+        <button class="menu-item" id="menu-password">Password</button>
         <button class="menu-item" id="menu-logout">Logout</button>
       </div>
 
@@ -252,6 +253,13 @@
                 <button class="btn" id="btn-generate-news">&#9654; Generate News</button>
                 <button class="btn" id="btn-toggle-news" disabled>Enable News</button>
               </div>
+              <div class="form-group" style="margin-top:12px;">
+                <label for="ai-track-interval">Songs between news segments:</label>
+                <div style="display:flex;gap:6px;align-items:center;">
+                  <input type="number" id="ai-track-interval" min="1" max="100" value="10" style="width:80px;">
+                  <button class="btn" id="btn-save-interval">Save</button>
+                </div>
+              </div>
               <div id="ai-news-status" class="info-msg" style="margin-top:8px;"></div>
               <hr style="border:none;border-top:1px solid var(--win-shadow);margin:16px 0;">
               <div class="form-group">
@@ -386,7 +394,7 @@
           </div>
           <div class="form-group">
             <label for="new-password">Password:</label>
-            <input type="password" id="new-password" placeholder="Enter password" required>
+            <input type="password" id="new-password" placeholder="At least 8 characters" required minlength="8">
           </div>
           <div class="form-group">
             <label for="new-role">Role:</label>
@@ -396,6 +404,39 @@
             </select>
           </div>
           <div id="add-user-error" class="error-msg"></div>
+          <div class="form-actions">
+            <button type="submit" class="btn btn-primary">OK</button>
+            <button type="button" class="btn dialog-close">Cancel</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================== CHANGE PASSWORD DIALOG ===================== -->
+  <div id="password-dialog" class="dialog-overlay">
+    <div class="window dialog-window">
+      <div class="title-bar">
+        <div class="title-bar-text" id="password-dialog-title">Change Password</div>
+        <div class="title-bar-controls">
+          <button class="title-bar-btn close dialog-close">&times;</button>
+        </div>
+      </div>
+      <div class="window-body">
+        <form id="password-form">
+          <div class="form-group" id="current-password-group">
+            <label for="current-password">Current Password:</label>
+            <input type="password" id="current-password" autocomplete="current-password">
+          </div>
+          <div class="form-group">
+            <label for="change-password">New Password:</label>
+            <input type="password" id="change-password" placeholder="At least 8 characters" required minlength="8" autocomplete="new-password">
+          </div>
+          <div class="form-group">
+            <label for="change-password-confirm">Confirm New Password:</label>
+            <input type="password" id="change-password-confirm" required minlength="8" autocomplete="new-password">
+          </div>
+          <div id="password-error" class="error-msg"></div>
           <div class="form-actions">
             <button type="submit" class="btn btn-primary">OK</button>
             <button type="button" class="btn dialog-close">Cancel</button>

@@ -2,7 +2,10 @@ node_modules/
 radio.db
 radio.db-shm
 radio.db-wal
-public/news/segment.mp3
+secret.key
+data/
+music
+public/news/*.mp3
 starter_prompt.txt
 *.log
 .env

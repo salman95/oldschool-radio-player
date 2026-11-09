@@ -1,8 +1,12 @@
 const https = require('https');
-const { execSync } = require('child_process');
+const { execFile } = require('child_process');
+const { promisify } = require('util');
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const db = require('./db');
+
+const execFileAsync = promisify(execFile);
 
 const NEWS_DIR = path.join(__dirname, 'public', 'news');
 const NEWS_FILE = path.join(NEWS_DIR, 'segment.mp3');
@@ -116,33 +120,42 @@ function generateNewsText(apiKey, model, headlines) {
 }
 
 /* ---------- Convert text to speech via edge-tts ---------- */
+// Runs asynchronously (no shell) so streaming isn't blocked while speech is generated.
+// The finished file is renamed into place, so a station currently playing the old
+// segment keeps reading it undisturbed.
 
-function generateSpeech(text) {
-  const escaped = text.replace(/'/g, "'\\''");
-  const rawFile = path.join(NEWS_DIR, 'raw.mp3');
+async function generateSpeech(text) {
+  const stamp = `${process.pid}-${Date.now()}`;
+  const textFile = path.join(os.tmpdir(), `news-${stamp}.txt`);
+  const rawFile = path.join(NEWS_DIR, `raw-${stamp}.mp3`);
+  const tmpFile = path.join(NEWS_DIR, `segment-${stamp}.mp3`);
   try {
+    fs.writeFileSync(textFile, text);
     // Step 1: Generate speech via edge-tts
-    execSync(
-      `edge-tts --voice en-US-JennyNeural --rate=+0% --pitch=+0Hz ` +
-      `--text '${escaped}' --write-media "${rawFile}" 2>/dev/null`,
-      { timeout: 60000 }
-    );
+    await execFileAsync('edge-tts', [
+      '--voice', 'en-US-JennyNeural', '--rate=+0%', '--pitch=+0Hz',
+      '--file', textFile, '--write-media', rawFile,
+    ], { timeout: 60000 });
     if (!fs.existsSync(rawFile) || fs.statSync(rawFile).size < 1000) {
       throw new Error('Generated audio too small or missing');
     }
     // Step 2: Re-encode to standard MP3 (44100Hz, 128kbps, stereo)
     // This ensures seamless transition between music and news segments.
-    execSync(
-      `ffmpeg -y -i "${rawFile}" -f mp3 -b:a 128k -ar 44100 -ac 2 "${NEWS_FILE}" 2>/dev/null`,
-      { timeout: 30000 }
-    );
-    fs.unlinkSync(rawFile);
-    if (fs.existsSync(NEWS_FILE) && fs.statSync(NEWS_FILE).size > 1000) {
-      return NEWS_FILE;
+    await execFileAsync('ffmpeg', [
+      '-y', '-hide_banner', '-loglevel', 'error', '-i', rawFile,
+      '-f', 'mp3', '-b:a', '128k', '-ar', '44100', '-ac', '2', tmpFile,
+    ], { timeout: 30000 });
+    if (!fs.existsSync(tmpFile) || fs.statSync(tmpFile).size <= 1000) {
+      throw new Error('Re-encoding failed');
     }
-    throw new Error('Re-encoding failed');
+    fs.renameSync(tmpFile, NEWS_FILE);
+    return NEWS_FILE;
   } catch (e) {
     throw new Error(`TTS failed: ${e.message}`);
+  } finally {
+    for (const f of [textFile, rawFile, tmpFile]) {
+      try { fs.unlinkSync(f); } catch (e) { /* already gone */ }
+    }
   }
 }
 
@@ -178,7 +191,24 @@ async function generateBasicNews() {
 
 /* ---------- Full generation pipeline ---------- */
 
+// Only one generation at a time — they share the same output file
+let generating = false;
+
 async function generateNews(apiKey, useAi) {
+  if (generating) {
+    const err = new Error('News generation already in progress');
+    err.status = 409;
+    throw err;
+  }
+  generating = true;
+  try {
+    return await runGeneration(apiKey, useAi);
+  } finally {
+    generating = false;
+  }
+}
+
+async function runGeneration(apiKey, useAi) {
   console.log('[ai-news] Fetching latest AI news headlines...');
   let headlines = [];
   try {
@@ -191,7 +221,7 @@ async function generateNews(apiKey, useAi) {
   if (!useAi) {
     // Basic mode: template headlines directly, skip DeepSeek
     const result = await generateBasicNews();
-    const audioPath = generateSpeech(result.text);
+    const audioPath = await generateSpeech(result.text);
     console.log('[ai-news] Basic news speech generated:', audioPath);
     return { text: result.text, audioPath };
   }
@@ -199,7 +229,7 @@ async function generateNews(apiKey, useAi) {
   console.log('[ai-news] Generating news text via DeepSeek (deepseek-v4-flash)...');
   const text = await generateNewsText(apiKey, 'deepseek-v4-flash', headlines);
   console.log('[ai-news] News text generated, converting to speech...');
-  const audioPath = generateSpeech(text);
+  const audioPath = await generateSpeech(text);
   console.log('[ai-news] Speech generated:', audioPath);
   return { text, audioPath };
 }
@@ -208,10 +238,11 @@ async function generateNews(apiKey, useAi) {
 
 async function refreshNews() {
   const config = db.getAiNews.get();
-  if (!config || !config.enabled || !config.api_key) return false;
-  
+  const apiKey = db.getApiKey();
+  if (!config || !config.enabled || !apiKey) return false;
+
   try {
-    const { text, audioPath } = await generateNews(config.api_key, config.use_ai !== 0);
+    const { text, audioPath } = await generateNews(apiKey, config.use_ai !== 0);
     db.updateAiNewsAudio.run(text, audioPath);
     console.log('[ai-news] News refreshed successfully');
     return true;
@@ -230,6 +261,14 @@ function getNewsAudioPath() {
   return config.audio_path;
 }
 
+/* ---------- Songs between news segments ---------- */
+
+function getTrackInterval() {
+  const config = db.getAiNews.get();
+  const n = config && parseInt(config.track_interval, 10);
+  return n > 0 ? n : 10;
+}
+
 /* ---------- Check if news is ready ---------- */
 
 function isNewsReady() {
@@ -245,5 +284,6 @@ module.exports = {
   refreshNews,
   getNewsAudioPath,
   isNewsReady,
+  getTrackInterval,
   NEWS_FILE,
 };

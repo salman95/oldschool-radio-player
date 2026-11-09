@@ -4,22 +4,26 @@ services:
       context: .
       dockerfile: Dockerfile
     container_name: radio-app
+    # Must match the owner of ./data on the host (`id -u` / `id -g`)
+    user: "${PUID:-1000}:${PGID:-1000}"
     ports:
       - "${PORT:-6767}:6767"
     environment:
       - NODE_ENV=production
-      - PORT=${PORT:-6767}
+      # The app always listens on 6767 inside the container; PORT only changes the host port
+      - PORT=6767
       - DB_PATH=/app/data/radio.db
       - TZ=${TZ:-UTC}
     env_file:
-      - .env
+      - path: .env
+        required: false
     volumes:
       - ./data:/app/data
       - ./music:/app/music:ro
       - news-audio:/app/public/news
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "node", "-e", "require('http').get('http://localhost:' + (process.env.PORT||6767), r=>{process.exit(r.statusCode===200?0:1)})"]
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:6767', r=>{process.exit(r.statusCode===200?0:1)}).on('error',()=>process.exit(1))"]
       interval: 30s
       timeout: 5s
       retries: 3
@@ -30,6 +34,11 @@ services:
       - no-new-privileges:true
     tmpfs:
       - /tmp:size=64M
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
 
 volumes:
   news-audio:

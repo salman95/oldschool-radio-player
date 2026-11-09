@@ -14,7 +14,7 @@ A self-hosted internet radio player with a **Windows 98/2000 aesthetic**, built 
 
 ## Docker (Recommended)
 
-The easiest way to run RadioApp. See [DOCKER.md](DOCKER.md) for full details.
+The easiest way to run RadioApp.
 
 ```bash
 # Clone and prepare
@@ -22,16 +22,23 @@ git clone <repo-url> radio-app
 cd radio-app
 
 # Create data directories (required for persistence)
-mkdir -p data music news-audio
+mkdir -p data music
 
-# Copy environment config
+# Copy environment config, then set PUID/PGID to the owner of ./data (`id -u`, `id -g`)
+# and optionally ADMIN_PASSWORD
 cp .env.example .env
 
 # Start
 docker compose up -d
 ```
 
-Visit `http://localhost:6767` — default login: `admin` / `admin123`.
+Visit `http://localhost:6767` and log in as `admin`. The password is `ADMIN_PASSWORD` from `.env` if you set one; otherwise a random password is generated on first start and printed once in the logs:
+
+```bash
+docker compose logs radio | grep "Seeded admin"
+```
+
+The container runs as `PUID:PGID` (default `1000:1000`), which must be able to write `./data`. If the logs say `Cannot open database`, fix the ownership with `sudo chown -R "$(id -u):$(id -g)" data` or adjust `PUID`/`PGID`. News audio is kept in the `news-audio` named volume.
 
 ### Adding Music
 
@@ -53,7 +60,7 @@ The directory dropdown is populated automatically from the `music/` volume, so y
 
 ### Changing the Port
 
-Edit `.env` and change `PORT=6767` to your desired port, then `docker compose up -d`.
+Edit `.env` and change `PORT=6767` to your desired host port, then `docker compose up -d`. (The app always listens on 6767 inside the container.)
 
 ### Stopping
 
@@ -64,15 +71,15 @@ docker compose down -v       # stop, remove all data
 
 ## Features
 
-- **Live radio streaming** — All listeners hear identical audio simultaneously (byte-for-byte sync)
+- **Live radio streaming** — Audio is paced in real time, so all listeners hear the same broadcast together
 - **WinAmp-style mini player** — Scrolling track marquee, green-on-black display, animated visualizer
 - **Role-based access** — Admin can start/stop stations; listeners can only tune in/disconnect
 - **Multi-station support** — Run multiple stations with different music directories
 - **Interactive directory browser** — Pick music folders and sub-folders via dropdown menus instead of typing paths
 - **Track shuffle** — Random playback order, re-shuffled after all tracks have played
-- **FLAC/OGG/WAV transcoding** — Automatically converts to MP3 via ffmpeg for browser compatibility
+- **FLAC/OGG/WAV/AAC transcoding** — Automatically converts to MP3 via ffmpeg for browser compatibility
 - **AI News Roundup** — Optional AI-generated news segments inserted between songs (powered by DeepSeek + edge-tts)
-- **Persistent state** — Stations that were playing before a restart automatically resume
+- **Remote stream relay** — Re-broadcast an Icecast/SHOUTcast stream to your listeners
 - **Mobile responsive** — Works on phones and tablets
 
 ---
@@ -84,7 +91,7 @@ docker compose down -v       # stop, remove all data
 | Runtime | Node.js 20+ |
 | Database | better-sqlite3 (SQLite) |
 | Streaming | Raw Node.js HTTP server (no Express) |
-| Audio parsing | ffmpeg (for FLAC/OGG/WAV transcoding) |
+| Audio | ffmpeg (real-time pacing, transcoding, remote stream relay) |
 | TTS | edge-tts (Microsoft Edge, free) |
 | AI text | DeepSeek V4 Flash API |
 | Frontend | Vanilla HTML/CSS/JS (no frameworks) |
@@ -97,7 +104,7 @@ docker compose down -v       # stop, remove all data
 ### Prerequisites
 
 - Node.js 20+
-- ffmpeg (for FLAC/OGG/WAV support)
+- ffmpeg (required for playback)
 - Python 3 + pip3 (for edge-tts TTS)
 
 ### Installation
@@ -117,22 +124,36 @@ node server.js
 
 The app runs on **port 6767** at `http://0.0.0.0:6767`.
 
+Environment variables (all optional): `PORT`, `DB_PATH`, `MUSIC_DIR` (default `./music`), `ADMIN_PASSWORD`, `DEEPSEEK_API_KEY`, `APP_SECRET`, `COOKIE_SECURE` — see `.env.example`.
+
 ### Auto-start (systemd)
 
-```bash
-cp radio-app.service /etc/systemd/system/
-systemctl enable radio-app
-systemctl start radio-app
+Create `/etc/systemd/system/radio-app.service`:
+
+```ini
+[Unit]
+Description=RadioApp
+After=network.target
+
+[Service]
+WorkingDirectory=/root/radio-app
+ExecStart=/usr/bin/node server.js
+Restart=on-failure
+Environment=NODE_ENV=production
+
+[Install]
+WantedBy=multi-user.target
 ```
+
+Then `systemctl enable --now radio-app`.
 
 ---
 
-## Default Credentials
+## Accounts
 
-| Username | Password | Role |
-|----------|----------|------|
-| `admin` | `admin123` | Administrator |
-| `alice` | `secret` | Listener |
+On first start a single `admin` account is created, using `ADMIN_PASSWORD` if set or a random password printed once in the log. Change passwords with **Password** in the menu bar; admins can set other users' passwords from the **Users** screen. Passwords must be at least 8 characters.
+
+After 10 failed logins for the same username from the same IP, further attempts are refused for 15 minutes.
 
 ---
 
@@ -141,16 +162,19 @@ systemctl start radio-app
 | Endpoint | Method | Description |
 |----------|--------|-------------|
 | `/api/login` | POST | Authenticate and get session cookie |
+| `/api/account/password` | POST | Change your own password |
+| `/api/users/:id/password` | PATCH | Set a user's password (admin) |
 | `/api/music-dirs` | GET | List top-level music folders (admin) |
 | `/api/subdirs/:path` | GET | List sub-folders of a given path (admin) |
 | `/api/stations` | GET | List all stations |
 | `/api/stations/:id/play` | POST | Start broadcasting (admin) |
 | `/api/stations/:id/stop` | POST | Stop broadcasting (admin) |
 | `/api/stations/:id/status` | GET | Current track, listener count |
-| `/stream?station_id=:id` | GET | Live MP3 audio stream |
+| `/stream?station_id=:id` | GET | Live MP3 audio stream (login required) |
 | `/api/ai-news/key` | POST | Save DeepSeek API key (admin) |
 | `/api/ai-news/generate` | POST | Generate news segment (admin) |
 | `/api/ai-news/toggle` | POST | Enable/disable news (admin) |
+| `/api/ai-news/interval` | POST | Set songs between news segments (admin) |
 
 ---
 
@@ -158,10 +182,9 @@ systemctl start radio-app
 
 | Format | Support |
 |--------|---------|
-| MP3 | Native, streamed directly |
-| AAC/M4A | Streamed directly |
-| FLAC | Transcoded to MP3 via ffmpeg |
-| OGG, WAV, WMA | Transcoded to MP3 via ffmpeg |
+| MP3 | Streamed as-is (no re-encoding) |
+| FLAC, OGG, Opus, WAV, WMA, AAC/M4A, WebM | Transcoded to MP3 via ffmpeg |
+| Remote streams (http/https) | Relayed and transcoded to 128 kbps MP3 |
 
 ---
 
@@ -169,7 +192,9 @@ systemctl start radio-app
 
 1. Add a DeepSeek API key in the **AI News** admin tab
 2. Click **Generate News** — calls DeepSeek V4 Flash for 2 AI story summaries, then converts to speech via edge-tts
-3. Click **Enable News** — after every 10 songs, all stations will play the 30-60 second news segment
+3. Click **Enable News** — after every 10 songs (configurable), all stations will play the 30-60 second news segment
+
+The API key is stored encrypted in the database (or provide it with `DEEPSEEK_API_KEY`).
 
 Cost: ~$0.0001 per generation (DeepSeek V4 Flash at $0.14/million tokens).
 
